@@ -1,0 +1,176 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      pinot:
+        image: apachepinot/pinot:latest
+        ports:
+          - 9000:9000
+          - 8099:8099
+        options: >-
+          --health-cmd "curl --fail http://localhost:9000/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Clojure
+      uses: DeLaGuardo/setup-clojure@v4
+      with:
+        version: '1.11.1.1262'
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'yarn'
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.m2
+          ~/.gitlibs
+          .cpcache
+          node_modules
+          */*/node_modules
+        key: ${{ runner.os }}-deps-${{ hashFiles('**/deps.edn', '**/package.json') }}
+        restore-keys: |
+          ${{ runner.os }}-deps-
+
+    - name: Clone Metabase
+      run: |
+        git clone -b v1.52.2.2 --depth 1 https://github.com/metabase/metabase.git
+
+    - name: Install dependencies
+      run: |
+        cd metabase
+        yarn install --frozen-lockfile
+
+    - name: Setup driver
+      run: |
+        # Link driver
+        ln -s ../../drivers/pinot metabase/modules/drivers/pinot
+        
+        # Update deps files
+        cd metabase
+        if ! grep -q "modules/drivers/pinot/test" deps.edn; then
+          sed -i 's/\/test"\]\}/\/test" "modules\/drivers\/pinot\/test"\]\}/g' deps.edn
+        fi
+        
+        cd modules/drivers
+        if ! grep -q "metabase/pinot" deps.edn; then
+          sed -i 's/\}\}\}/\} \metabase\/pinot \{:local\/root \"pinot\"\}\}\}/g' deps.edn
+        fi
+
+    - name: Build frontend
+      run: |
+        cd metabase
+        export MB_EDITION=ee
+        export NODE_OPTIONS='--max-old-space-size=4096'
+        yarn build-static-viz
+        export WEBPACK_BUNDLE=production
+        yarn build-release
+        yarn build-static-viz
+
+    - name: Build driver
+      run: |
+        cd metabase
+        ./bin/build-driver.sh pinot
+
+    - name: Wait for Pinot
+      run: |
+        echo "Waiting for Pinot server..."
+        timeout 60 bash -c 'until curl --fail --silent --insecure http://localhost:9000/health; do sleep 2; done'
+        echo "Pinot server ready!"
+
+    - name: Run tests
+      run: |
+        cd metabase
+        export DRIVERS=pinot
+        export MB_PINOT_TEST_PORT=9000
+        clojure -X:dev:drivers:drivers-dev:test
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: |
+          metabase/test-results/
+          metabase/coverage/
+        retention-days: 7
+
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Clojure
+      uses: DeLaGuardo/setup-clojure@v4
+      with:
+        version: '1.11.1.1262'
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.m2
+          ~/.gitlibs
+          .cpcache
+        key: ${{ runner.os }}-clojure-${{ hashFiles('**/deps.edn') }}
+        restore-keys: |
+          ${{ runner.os }}-clojure-
+
+    - name: Run linting
+      run: |
+        cd drivers/pinot
+        clojure -M:clj-kondo
+
+  security:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Clojure
+      uses: DeLaGuardo/setup-clojure@v4
+      with:
+        version: '1.11.1.1262'
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.m2
+          ~/.gitlibs
+          .cpcache
+        key: ${{ runner.os }}-clojure-${{ hashFiles('**/deps.edn') }}
+        restore-keys: |
+          ${{ runner.os }}-clojure-
+
+    - name: Run security scan
+      run: |
+        cd drivers/pinot
+        clojure -M:security-scan 
