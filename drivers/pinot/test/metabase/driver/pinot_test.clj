@@ -13,16 +13,25 @@
 ;;
 (ns metabase.driver.pinot-test
   (:require
-   [clojure.test :refer :all]
-   [metabase.driver.pinot :as pinot]))
+   [clojure.test :refer [deftest is testing]]
+   [metabase.driver :as driver]
+   [metabase.driver.pinot]))
 
 (deftest pinot-driver-registration-test
   (testing "Pinot driver should be registered"
-    (is (some? (get-method metabase.driver/database-supports? [:pinot :expression-aggregations])))))
+    (is (some? (get-method driver/database-supports? [:pinot :expression-aggregations])))))
 
 (deftest pinot-driver-features-test
   (testing "Pinot driver should support expected features"
-    (is (true? (metabase.driver/database-supports? :pinot :expression-aggregations nil)))
-    (is (false? (metabase.driver/database-supports? :pinot :schemas nil)))
-    (is (true? (metabase.driver/database-supports? :pinot :set-timezone nil)))
-    (is (true? (metabase.driver/database-supports? :pinot :temporal/requires-default-unit nil))))) 
+    (is (true? (driver/database-supports? :pinot :expression-aggregations nil)))
+    (is (false? (driver/database-supports? :pinot :schemas nil)))
+    (is (true? (driver/database-supports? :pinot :set-timezone nil)))
+    (is (true? (driver/database-supports? :pinot :temporal/requires-default-unit nil)))))
+
+(deftest pinot-driver-namespace-test
+  (testing "Pinot driver namespace should be loadable"
+    (is (some? (find-ns 'metabase.driver.pinot)))))
+
+(deftest pinot-driver-connection-test
+  (testing "Pinot driver should have connection details"
+    (is (some? (driver/connection-properties :pinot))))) 

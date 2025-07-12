@@ -22,7 +22,7 @@
    [metabase.util :as u]
    [metabase.util.i18n :refer [tru]]
    [metabase.util.log :as log]
-   [metabase.util.ssh :as ssh]))
+   [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh]))
 
 (set! *warn-on-reflection* true)
 
@@ -200,9 +200,10 @@
     (try
       ;; Run the query in a future so that this thread will be interrupted, not the thread running the query (which is
       ;; not interrupt aware)
-      (u/prog1 @query-fut
-        (when (instance? Throwable <>)
-          (throw <>)))
+      (let [result @query-fut]
+        (when (instance? Throwable result)
+          (throw result))
+        result)
       (catch InterruptedException e
         @cancel!
         (throw e))))) 

@@ -15,7 +15,7 @@
   (:require
    [metabase.driver.pinot.client :as pinot.client]
 
-   [metabase.util.ssh :as ssh]
+   [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh]
    [clojure.string :as str]))
 
 (defn- pinot-type->base-type [field-type]

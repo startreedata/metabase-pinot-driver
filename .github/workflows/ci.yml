@@ -10,104 +10,92 @@ jobs:
   test:
     runs-on: ubuntu-latest
     
-    services:
-      pinot:
-        image: apachepinot/pinot:latest
-        ports:
-          - 9000:9000
-          - 8099:8099
-        options: >-
-          --health-cmd "curl --fail http://localhost:9000/health"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup Java
+    - name: Start Pinot
+      run: |
+        chmod +x scripts/start-pinot-quickstart.sh
+        ./scripts/start-pinot-quickstart.sh
+
+    - name: Set up Java 21
       uses: actions/setup-java@v4
       with:
+        java-version: '21'
         distribution: 'temurin'
-        java-version: '17'
 
     - name: Setup Clojure
-      uses: DeLaGuardo/setup-clojure@v4
+      uses: DeLaGuardo/setup-clojure@13.4
       with:
-        version: '1.11.1.1262'
+        cli: 1.12.1.1550
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        cache: 'yarn'
-
-    - name: Cache dependencies
+    - name: Cache Clojure dependencies
       uses: actions/cache@v4
       with:
         path: |
           ~/.m2
           ~/.gitlibs
           .cpcache
-          node_modules
-          */*/node_modules
-        key: ${{ runner.os }}-deps-${{ hashFiles('**/deps.edn', '**/package.json') }}
+        key: ${{ runner.os }}-clojure-${{ hashFiles('**/deps.edn') }}
         restore-keys: |
-          ${{ runner.os }}-deps-
+          ${{ runner.os }}-clojure-
 
-    - name: Clone Metabase
+    - name: Clone metabase if needed
       run: |
-        git clone -b v1.52.2.2 --depth 1 https://github.com/metabase/metabase.git
-
-    - name: Install dependencies
-      run: |
-        cd metabase
-        yarn install --frozen-lockfile
-
-    - name: Setup driver
-      run: |
-        # Link driver
-        ln -s ../../drivers/pinot metabase/modules/drivers/pinot
-        
-        # Update deps files
-        cd metabase
-        if ! grep -q "modules/drivers/pinot/test" deps.edn; then
-          sed -i 's/\/test"\]\}/\/test" "modules\/drivers\/pinot\/test"\]\}/g' deps.edn
-        fi
-        
-        cd modules/drivers
-        if ! grep -q "metabase/pinot" deps.edn; then
-          sed -i 's/\}\}\}/\} \metabase\/pinot \{:local\/root \"pinot\"\}\}\}/g' deps.edn
+        echo "=== Checking metabase setup ==="
+        if [ ! -d "metabase" ]; then
+          echo "Metabase directory not found, cloning..."
+          make clone_metabase_if_missing
+        else
+          echo "Metabase directory found"
         fi
 
-    - name: Build frontend
-      run: |
-        cd metabase
-        export MB_EDITION=ee
-        export NODE_OPTIONS='--max-old-space-size=4096'
-        yarn build-static-viz
-        export WEBPACK_BUNDLE=production
-        yarn build-release
-        yarn build-static-viz
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'yarn'
+        cache-dependency-path: 'metabase/yarn.lock'
 
-    - name: Build driver
+    - name: Install Node.js dependencies
       run: |
-        cd metabase
-        ./bin/build-driver.sh pinot
+        # Use yarn instead of npm since metabase uses yarn
+        if [ -f "metabase/yarn.lock" ]; then
+          cd metabase && yarn install
+        else
+          echo "No yarn.lock found, skipping yarn install"
+        fi
 
-    - name: Wait for Pinot
+    - name: Setup driver and build
       run: |
-        echo "Waiting for Pinot server..."
-        timeout 60 bash -c 'until curl --fail --silent --insecure http://localhost:9000/health; do sleep 2; done'
-        echo "Pinot server ready!"
+        echo "=== Checking driver setup ==="
+        if [ ! -L "metabase/modules/drivers/pinot" ]; then
+          echo "Driver symlink not found, creating..."
+          make link_to_driver
+        else
+          echo "Driver symlink found"
+        fi
+        
+        echo "=== Updating deps files ==="
+        make update_deps_files
+        
+        echo "=== Building frontend ==="
+        make front_end
+        
+        echo "=== Building driver ==="
+        cd metabase
+        # Ensure metabase core is available on classpath by including dev alias
+        # The :dev alias includes core source paths needed for metabase.util.ssh
+        clojure -X:dev:build:drivers:build/driver :driver :pinot :edition :oss
 
     - name: Run tests
       run: |
         cd metabase
         export DRIVERS=pinot
         export MB_PINOT_TEST_PORT=9000
-        clojure -X:dev:drivers:drivers-dev:test
+        # Use the correct test command for Metabase
+        clojure -M:dev:drivers:drivers-dev:test
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
@@ -127,9 +115,9 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Setup Clojure
-      uses: DeLaGuardo/setup-clojure@v4
+      uses: DeLaGuardo/setup-clojure@13.4
       with:
-        version: '1.11.1.1262'
+        cli: 1.12.1.1550
 
     - name: Cache dependencies
       uses: actions/cache@v4
@@ -147,6 +135,106 @@ jobs:
         cd drivers/pinot
         clojure -M:clj-kondo
 
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Java 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+    
+    - name: Set up Clojure CLI
+      uses: DeLaGuardo/setup-clojure@13.4
+      with:
+        cli: 1.12.1.1550
+    
+    - name: Cache Clojure dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.m2
+          ~/.gitlibs
+        key: ${{ runner.os }}-clojure-${{ hashFiles('**/deps.edn') }}
+        restore-keys: |
+          ${{ runner.os }}-clojure-
+    
+    - name: Clone metabase if needed
+      run: |
+        echo "=== Checking metabase setup ==="
+        if [ ! -d "metabase" ]; then
+          echo "Metabase directory not found, cloning..."
+          make clone_metabase_if_missing
+        else
+          echo "Metabase directory found"
+        fi
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'yarn'
+        cache-dependency-path: 'metabase/yarn.lock'
+    
+    - name: Install Node.js dependencies
+      run: |
+        # Use yarn instead of npm since metabase uses yarn
+        if [ -f "metabase/yarn.lock" ]; then
+          cd metabase && yarn install
+        else
+          echo "No yarn.lock found, skipping yarn install"
+        fi
+    
+    - name: Build metabase and driver
+      run: |
+        echo "=== Starting build ==="
+        
+        echo "=== Checking driver setup ==="
+        if [ ! -L "metabase/modules/drivers/pinot" ]; then
+          echo "Driver symlink not found, creating..."
+          make link_to_driver
+        else
+          echo "Driver symlink found"
+        fi
+        
+        echo "=== Updating deps files ==="
+        make update_deps_files
+        
+        echo "=== Building frontend ==="
+        make front_end
+        
+        echo "=== Building driver ==="
+        cd metabase
+        # Ensure metabase core is available on classpath by including dev alias
+        # The :dev alias includes core source paths needed for metabase.util.ssh
+        clojure -X:dev:build:drivers:build/driver :driver :pinot :edition :oss
+        cd ..
+        
+        echo "=== Checking if driver JAR was created ==="
+        if [ -f "metabase/resources/modules/pinot.metabase-driver.jar" ]; then
+          echo "✅ Driver JAR successfully created"
+          echo "📦 JAR size: $(du -h metabase/resources/modules/pinot.metabase-driver.jar | cut -f1)"
+        else
+          echo "❌ Driver JAR not found"
+          echo "=== Debugging: listing metabase/resources/modules/ ==="
+          ls -la metabase/resources/modules/ || echo "Directory not found"
+          exit 1
+        fi
+    
+    - name: Verify driver JAR contents
+      run: |
+        echo "📋 JAR contents (first 10 files):"
+        jar -tf metabase/resources/modules/pinot.metabase-driver.jar | head -10
+        echo "📋 JAR size and details:"
+        ls -la metabase/resources/modules/pinot.metabase-driver.jar
+    
+    - name: Run driver verification
+      run: clojure verify_driver.clj
+
   security:
     runs-on: ubuntu-latest
     
@@ -155,9 +243,9 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Setup Clojure
-      uses: DeLaGuardo/setup-clojure@v4
+      uses: DeLaGuardo/setup-clojure@13.4
       with:
-        version: '1.11.1.1262'
+        cli: 1.12.1.1550
 
     - name: Cache dependencies
       uses: actions/cache@v4
