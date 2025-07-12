@@ -17,7 +17,7 @@
    [clj-http.client :as http]
    [clojure.core.async :as a]
    [clojure.string :as str]
-   [metabase.models.secret :as secret]
+
    [metabase.query-processor.error-type :as qp.error-type]
    [metabase.util :as u]
    [metabase.util.i18n :refer [tru]]
@@ -142,7 +142,7 @@
                        :database-name (:database-name details)
                        :auth-enabled     (:auth-enabled details)
                        :auth-token-type  (:auth-token-type details)
-                       :auth-token-value (secret/value-as-string nil details "auth-token-value"))]
+                       :auth-token-value (:auth-token-value details))]
 
         ;; Log the query, details, and response
         (log/debugf "Pinot details: %s, Pinot query: %s, Parsed Pinot response: %s"
@@ -177,7 +177,7 @@
           :database-name (:database-name details)
           :auth-enabled  (:auth-enabled details)
           :auth-token-type  (:auth-token-type details)
-          :auth-token-value (secret/value-as-string nil details "auth-token-value"))
+          :auth-token-value (:auth-token-value details))
         (catch Exception cancel-e
           (log/warnf cancel-e "Failed to cancel Pinot query with queryId %s" query-id))))))
 

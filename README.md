@@ -16,10 +16,15 @@ This repository contains the Apache Pinot driver for Metabase, allowing you to c
 
 ## Prerequisites
 
-- Java 11 or higher
-- Clojure 1.11.1.1262
-- Apache Pinot instance running
-- Metabase v1.52.2.2 or compatible version
+- Git
+- Docker
+- Java 17
+- Clojure 1.12.1.1550
+- NodeJS 22
+- NPM 10
+- Yarn 1.22
+- Apache Pinot 1.3.0
+- Metabase v0.55.7
 
 ## Installation
 
