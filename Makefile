@@ -1,4 +1,4 @@
-.PHONY: clone_metabase_if_missing clean link_to_driver front_end driver update_deps_files server test all release
+.PHONY: clone_metabase_if_missing clean link_to_driver front_end driver update_deps_files server test all release help
 .DEFAULT_GOAL := all
 export MB_EDITION=ee
 export NODE_OPTIONS='--max-old-space-size=4096'
@@ -8,7 +8,7 @@ metabase_version := $(shell jq '.metabase' app_versions.json)
 
 makefile_dir := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
 pinot_port := 9000
-is_pinot_started := $(shell curl --fail --silent --insecure http://localhost:$(pinot_port)/health | jq '.')
+is_pinot_started := $(shell curl --fail --silent --insecure http://localhost:$(pinot_port)/health 2>/dev/null)
 
 clone_metabase_if_missing:
 ifeq ($(wildcard $(makefile_dir)metabase/.),)
@@ -33,10 +33,27 @@ else
 endif
 
 clean:
-	@echo "Force cleaning Metabase repo..."
-	cd $(makefile_dir)metabase/modules/drivers && git reset --hard && git clean -f
-	@echo "Checking out metabase at: $(metabase_version)"
-	cd $(makefile_dir)metabase/modules/drivers && git fetch --all --tags && git checkout $(metabase_version);
+	@echo "Cleaning all build artifacts and caches..."
+	@echo "Removing driver build artifacts..."
+	@rm -rf $(makefile_dir)drivers/pinot/target
+	@rm -rf $(makefile_dir)drivers/pinot/.cpcache
+	@echo "Removing metabase directory and all its contents..."
+	@rm -rf $(makefile_dir)metabase
+	@echo "Removing backup files..."
+	@find $(makefile_dir) -name "*.bak" -type f -delete 2>/dev/null || true
+	@echo "Clean completed successfully!"
+
+help:
+	@echo "Available targets:"
+	@echo "  build                  - Build the complete project (frontend + driver)"
+	@echo "  driver                 - Build only the Pinot driver"
+	@echo "  front_end              - Build only the frontend"
+	@echo "  server                 - Start the metabase server"
+	@echo "  test                   - Run driver tests"
+	@echo "  clean                  - Remove all build artifacts, caches, and downloads"
+	@echo "  clone_metabase_if_missing - Clone metabase repository if not present"
+	@echo "  docker-image           - Build Docker image"
+	@echo "  help                   - Show this help message"
 
 link_to_driver:
 ifeq ($(wildcard $(makefile_dir)metabase/modules/drivers/pinot/src),)

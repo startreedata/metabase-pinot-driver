@@ -17,13 +17,14 @@
    [cheshire.core :as json]
    [clj-http.client :as http]
    [metabase.driver :as driver]
+   [metabase.driver.common :as driver.common]
    [metabase.driver.pinot.client :as pinot.client]
    [metabase.driver.pinot.execute :as pinot.execute]
    [metabase.driver.pinot.query-processor :as pinot.qp]
    [metabase.driver.pinot.sync :as pinot.sync]
-   [metabase.query-processor.pipeline :as qp.pipeline]
+   [metabase.util.i18n :refer [deferred-tru]]
    [metabase.util.log :as log]
-   [metabase.util.ssh :as ssh]))
+   [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh]))
 
 (driver/register! :pinot)
 
@@ -32,6 +33,35 @@
                               :set-timezone                   true
                               :temporal/requires-default-unit true}]
   (defmethod driver/database-supports? [:pinot feature] [_driver _feature _db] supported?))
+
+(defmethod driver/connection-properties :pinot
+  [_driver]
+  [{:name         "controller-endpoint"
+    :display-name (deferred-tru "Controller Endpoint")
+    :helper-text  (deferred-tru "The full URL of your Pinot Controller (e.g. http://localhost:9000)")
+    :placeholder  "http://localhost:9000"
+    :required     true}
+   {:name         "auth-enabled"
+    :display-name (deferred-tru "Authentication Enabled")
+    :type         :boolean
+    :default      false}
+   {:name         "auth-token-type"
+    :display-name (deferred-tru "Authentication Token Type")
+    :placeholder  "Basic"
+    :default      "Basic"}
+   {:name         "auth-token-value"
+    :display-name (deferred-tru "Authentication Token Value")
+    :type         :password
+    :placeholder  "••••••••"}
+   {:name         "database-name"
+    :display-name (deferred-tru "Database Name")
+    :placeholder  "pinot"}
+   {:name         "query-options"
+    :display-name (deferred-tru "Query Options")
+    :helper-text  (deferred-tru "Additional query options as key=value pairs separated by semicolons")
+    :placeholder  "timeoutMs=30000;maxServerResponseSizeBytes=1048576"
+    :type         :text}
+   driver.common/ssh-tunnel-preferences])
 
 (defmethod driver/can-connect? :pinot
   [_ details]
@@ -70,12 +100,12 @@
     (assoc-in parsed [:queryOptions :timeoutMs] timeout)))
 
 (defmethod driver/execute-reducible-query :pinot
-  [_driver query _context respond]
+  [_driver query context respond]
    (log/debugf "Executing reducible Pinot query: %s" query)
 
   (pinot.execute/execute-reducible-query
-   (partial pinot.client/do-query-with-cancellation qp.pipeline/*canceled-chan*)
-   (update-in query [:native :query] add-timeout-to-query qp.pipeline/*query-timeout-ms*)
+   (partial pinot.client/do-query-with-cancellation (:canceled-chan context))
+   (update-in query [:native :query] add-timeout-to-query 30000) ; 30 second default timeout
    respond))
 
 (defmethod driver/db-start-of-week :pinot

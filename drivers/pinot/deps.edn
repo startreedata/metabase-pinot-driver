@@ -17,17 +17,17 @@
  ;; build the driver with clojure -X:build
  :aliases
  {:build
-  {:extra-deps {metabase/metabase-core {:local/root "../metabase"}
-                metabase/build-drivers {:local/root "../metabase/bin/build-drivers"}}
+  {:extra-deps {metabase/metabase-core {:local/root "../../../metabase"}
+                metabase/build-drivers {:local/root "../../../metabase/bin/build"}}
    :exec-fn    build-drivers.build-driver/build-driver!
    :exec-args  {:driver      :pinot
                 :project-dir "."
                 :target-dir  "./target"}}
   
   :clj-kondo
-  {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2023.12.10"}}
-   :main-opts  ["--lint" "src" "test"]}
+  {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2022.05.31"}}
+   :main-opts  ["-m" "clj-kondo.main" "--lint" "src" "test" "--config" ".clj-kondo/config.edn"]}
   
   :security-scan
-  {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2023.12.10"}}
-   :main-opts  ["--lint" "src" "test" "--config" "{:linters {:security {:level :warning}}}" ]}}} 
+  {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2022.05.31"}}
+   :main-opts  ["-m" "clj-kondo.main" "--lint" "src" "test" "--config" "{:linters {:security {:level :warning}}}"]}}} 
