@@ -1,0 +1,203 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.0.0)'
+        required: true
+        type: string
+      commit_sha:
+        description: 'Commit SHA to release from'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as prerelease'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.commit_sha }}
+        fetch-depth: 0
+
+    - name: Validate inputs
+      run: |
+        echo "=== Validating release inputs ==="
+        echo "Version: ${{ inputs.version }}"
+        echo "Commit SHA: ${{ inputs.commit_sha }}"
+        echo "Prerelease: ${{ inputs.prerelease }}"
+        
+        # Validate version format (basic semver check)
+        if [[ ! "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+          echo "❌ Invalid version format. Expected semver format (e.g., 1.0.0 or 1.0.0-alpha.1)"
+          exit 1
+        fi
+        
+        # Validate commit SHA exists
+        if ! git rev-parse --verify "${{ inputs.commit_sha }}" >/dev/null 2>&1; then
+          echo "❌ Commit SHA ${{ inputs.commit_sha }} not found"
+          exit 1
+        fi
+        
+        echo "✅ All inputs validated successfully"
+
+    - name: Set up Java 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Setup Clojure
+      uses: DeLaGuardo/setup-clojure@13.4
+      with:
+        cli: 1.12.1.1550
+
+    - name: Cache Clojure dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.m2
+          ~/.gitlibs
+          .cpcache
+        key: ${{ runner.os }}-clojure-${{ hashFiles('**/deps.edn') }}
+        restore-keys: |
+          ${{ runner.os }}-clojure-
+
+    - name: Clone metabase if needed
+      run: |
+        echo "=== Checking metabase setup ==="
+        if [ ! -d "metabase" ]; then
+          echo "Metabase directory not found, cloning..."
+          make clone_metabase_if_missing
+        else
+          echo "Metabase directory found"
+        fi
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'yarn'
+        cache-dependency-path: 'metabase/yarn.lock'
+
+    - name: Install Node.js dependencies
+      run: |
+        # Use yarn instead of npm since metabase uses yarn
+        if [ -f "metabase/yarn.lock" ]; then
+          cd metabase && yarn install
+        else
+          echo "No yarn.lock found, skipping yarn install"
+        fi
+
+    - name: Build driver for release
+      run: |
+        echo "=== Building driver for release v${{ inputs.version }} ==="
+        
+        echo "=== Setting up driver symlink ==="
+        if [ ! -L "metabase/modules/drivers/pinot" ]; then
+          echo "Driver symlink not found, creating..."
+          make link_to_driver
+        else
+          echo "Driver symlink found"
+        fi
+        
+        echo "=== Updating deps files ==="
+        make update_deps_files
+        
+        echo "=== Building frontend ==="
+        make front_end
+        
+        echo "=== Building driver ==="
+        cd metabase
+        # Ensure metabase core is available on classpath by including dev alias
+        # The :dev alias includes core source paths needed for metabase.util.ssh
+        clojure -X:dev:build:drivers:build/driver :driver :pinot :edition :oss
+        cd ..
+        
+        echo "=== Verifying driver JAR was created ==="
+        if [ -f "metabase/resources/modules/pinot.metabase-driver.jar" ]; then
+          echo "✅ Driver JAR successfully created"
+          echo "📦 JAR size: $(du -h metabase/resources/modules/pinot.metabase-driver.jar | cut -f1)"
+        else
+          echo "❌ Driver JAR not found"
+          echo "=== Debugging: listing metabase/resources/modules/ ==="
+          ls -la metabase/resources/modules/ || echo "Directory not found"
+          exit 1
+        fi
+
+    - name: Prepare release artifacts
+      run: |
+        echo "=== Preparing release artifacts ==="
+        mkdir -p release-artifacts
+        
+        # Copy driver JAR with versioned name
+        cp metabase/resources/modules/pinot.metabase-driver.jar release-artifacts/pinot.metabase-driver-v${{ inputs.version }}.jar
+        
+        # Create SHA256 checksum
+        cd release-artifacts
+        sha256sum pinot.metabase-driver-v${{ inputs.version }}.jar > pinot.metabase-driver-v${{ inputs.version }}.jar.sha256
+        
+        # Create release notes
+        cat > RELEASE_NOTES.md << EOF
+        # Pinot Driver v${{ inputs.version }}
+        
+        ## Overview
+        This release contains the Pinot driver for Metabase.
+        
+        ## Installation
+        1. Download the \`pinot.metabase-driver-v${{ inputs.version }}.jar\` file
+        2. Place it in your Metabase \`plugins\` directory
+        3. Restart Metabase
+        
+        ## Files
+        - \`pinot.metabase-driver-v${{ inputs.version }}.jar\` - The driver JAR file
+        - \`pinot.metabase-driver-v${{ inputs.version }}.jar.sha256\` - SHA256 checksum
+        
+        ## Build Information
+        - **Version**: v${{ inputs.version }}
+        - **Commit**: ${{ inputs.commit_sha }}
+        - **Built**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+        - **Metabase Version**: $(jq -r '.metabase' app_versions.json)
+        - **Pinot Version**: $(jq -r '.pinot' app_versions.json)
+        EOF
+        
+        echo "=== Release artifacts prepared ==="
+        ls -la
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ inputs.version }}
+        name: Pinot Driver v${{ inputs.version }}
+        body_path: release-artifacts/RELEASE_NOTES.md
+        prerelease: ${{ inputs.prerelease }}
+        target_commitish: ${{ inputs.commit_sha }}
+        files: |
+          release-artifacts/pinot.metabase-driver-v${{ inputs.version }}.jar
+          release-artifacts/pinot.metabase-driver-v${{ inputs.version }}.jar.sha256
+        generate_release_notes: true
+        make_latest: ${{ !inputs.prerelease }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Release Summary
+      run: |
+        echo "=== Release Summary ==="
+        echo "✅ Successfully created release v${{ inputs.version }}"
+        echo "📍 Commit: ${{ inputs.commit_sha }}"
+        echo "🏷️  Tag: v${{ inputs.version }}"
+        echo "📦 Artifacts:"
+        echo "   - pinot.metabase-driver-v${{ inputs.version }}.jar"
+        echo "   - pinot.metabase-driver-v${{ inputs.version }}.jar.sha256"
+        echo "🌐 Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ inputs.version }}" 
