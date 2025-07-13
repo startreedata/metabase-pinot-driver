@@ -1,1 +1,1 @@
-{:lint-as {metabase.util.ssh/with-ssh-tunnel clojure.core/let}} 
+{:lint-as {metabase.driver.sql-jdbc.connection.ssh-tunnel/with-ssh-tunnel clojure.core/let}} 

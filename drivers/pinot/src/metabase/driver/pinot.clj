@@ -22,7 +22,6 @@
    [metabase.driver.pinot.execute :as pinot.execute]
    [metabase.driver.pinot.query-processor :as pinot.qp]
    [metabase.driver.pinot.sync :as pinot.sync]
-   [metabase.query-processor.pipeline :as qp.pipeline]
    [metabase.util.i18n :refer [deferred-tru]]
    [metabase.util.log :as log]
    [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh]))
