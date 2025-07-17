@@ -51,7 +51,9 @@
   ;; rename any occurances of `:timestamp___int` to `:timestamp` in the results so the user doesn't know about
   ;; our behind-the-scenes conversion and apply any other post-processing on the value such as parsing some
   ;; units to int and rounding up approximate cardinality values.
-  (let [fixed-col-names (for [col-name col-names]
+  (let [;; Convert string column names to keywords for metadata processing
+        keyword-col-names (map #(if (string? %) (keyword %) %) col-names)
+        fixed-col-names (for [col-name keyword-col-names]
                           (case col-name
                             :timestamp___int  :timestamp
                             :distinct___count :count
@@ -102,7 +104,8 @@
                          vec)
                     (let [first-result (first (:results result))]
                         (if (map? first-result) ;; Check if first result is a map
-                          (map keyword (keys first-result))
+                          ;; Keep column names as strings for native queries since Pinot row data uses string keys
+                          (vec (keys first-result))
                           (throw (ex-info "Expected the first result to be a map" {:first-result first-result})))))
         metadata (result-metadata col-names)
         annotate-col-names (->> (annotate/merged-column-info outer-query metadata)
