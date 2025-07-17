@@ -17,12 +17,10 @@
    [cheshire.core :as json]
    [clj-http.client :as http]
    [metabase.driver :as driver]
-   [metabase.driver.common :as driver.common]
    [metabase.driver.pinot.client :as pinot.client]
    [metabase.driver.pinot.execute :as pinot.execute]
    [metabase.driver.pinot.query-processor :as pinot.qp]
    [metabase.driver.pinot.sync :as pinot.sync]
-   [metabase.util.i18n :refer [deferred-tru]]
    [metabase.util.log :as log]
    [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh]))
 
@@ -33,35 +31,6 @@
                               :set-timezone                   true
                               :temporal/requires-default-unit true}]
   (defmethod driver/database-supports? [:pinot feature] [_driver _feature _db] supported?))
-
-(defmethod driver/connection-properties :pinot
-  [_driver]
-  [{:name         "controller-endpoint"
-    :display-name (deferred-tru "Controller Endpoint")
-    :helper-text  (deferred-tru "The full URL of your Pinot Controller (e.g. http://localhost:9000)")
-    :placeholder  "http://localhost:9000"
-    :required     true}
-   {:name         "auth-enabled"
-    :display-name (deferred-tru "Authentication Enabled")
-    :type         :boolean
-    :default      false}
-   {:name         "auth-token-type"
-    :display-name (deferred-tru "Authentication Token Type")
-    :placeholder  "Basic"
-    :default      "Basic"}
-   {:name         "auth-token-value"
-    :display-name (deferred-tru "Authentication Token Value")
-    :type         :password
-    :placeholder  "••••••••"}
-   {:name         "database-name"
-    :display-name (deferred-tru "Database Name")
-    :placeholder  "pinot"}
-   {:name         "query-options"
-    :display-name (deferred-tru "Query Options")
-    :helper-text  (deferred-tru "Additional query options as key=value pairs separated by semicolons")
-    :placeholder  "timeoutMs=30000;maxServerResponseSizeBytes=1048576"
-    :type         :text}
-   driver.common/ssh-tunnel-preferences])
 
 (defmethod driver/can-connect? :pinot
   [_ details]
