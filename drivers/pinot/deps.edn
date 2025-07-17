@@ -1,33 +1,90 @@
-;;
-;; Licensed under the Apache License, Version 2.0 (the "License");
-;; you may not use this file except in compliance with the License.
-;; You may obtain a copy of the License at
-
-;;     http://www.apache.org/licenses/LICENSE-2.0
-
-;; Unless required by applicable law or agreed to in writing, software
-;; distributed under the License is distributed on an "AS IS" BASIS,
-;; WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-;; See the License for the specific language governing permissions and
-;; limitations under the License.
-;;
-{:paths
- ["src" "resources"]
-
- ;; build the driver with clojure -X:build
+{:paths ["src" "resources"]
+ :deps {org.clojure/core.async {:mvn/version "1.6.681"}
+        metabase/metabase-core {:local/root "../../metabase"}
+        redux/redux {:git/url "https://github.com/metabase/redux"
+                     :sha "4a37feaf817a2a6b5ef688c927f6fd4375964433"}}
+ :override-deps {redux/redux {:git/url "https://github.com/metabase/redux"
+                              :sha "4a37feaf817a2a6b5ef688c927f6fd4375964433"}}
+ :mvn/repos {"central" {:url "https://repo1.maven.org/maven2/"}
+             "clojars" {:url "https://repo.clojars.org"}
+             "metabase-maven-downloads" {:url "https://s3.amazonaws.com/metabase-maven-downloads"}
+             "redshift" {:url "https://s3.amazonaws.com/redshift-maven-repository/release"}
+             "opensaml" {:url "https://build.shibboleth.net/nexus/content/repositories/releases/"}}
  :aliases
  {:build
-  {:extra-deps {metabase/metabase-core {:local/root "../../../metabase"}
-                metabase/build-drivers {:local/root "../../../metabase/bin/build"}}
+  {:extra-deps {metabase/metabase-core {:local/root "../../metabase"}
+                metabase/build-drivers {:local/root "../../metabase/bin/build"}}
    :exec-fn    build-drivers.build-driver/build-driver!
    :exec-args  {:driver      :pinot
                 :project-dir "."
                 :target-dir  "./target"}}
+
+  :test
+  {:extra-paths ["test"]
+   :extra-deps {org.clojure/test.check {:mvn/version "1.1.1"}}}
+
+  :coverage
+  {:extra-paths ["test"]
+   :extra-deps {cloverage/cloverage {:mvn/version "1.2.4"}}
+   :main-opts ["-m" "cloverage.coverage" 
+               "--src-ns-path" "src" 
+               "--test-ns-path" "test"
+               "--output" "target/coverage"
+               "--html"
+               "--codecov"
+               "--junit"
+               "--fail-threshold" "70"
+               "--low-watermark" "50"
+               "--high-watermark" "80"]}
+
+  :test-coverage
+  {:extra-paths ["test"]
+   :extra-deps {cloverage/cloverage {:mvn/version "1.2.4"}}
+   :exec-fn cloverage.coverage/run-project
+   :exec-args {:src-ns-path ["src"]
+               :test-ns-path ["test"] 
+               :output "target/coverage"
+               :html? true
+               :codecov? true
+               :junit? true
+               :fail-threshold 70
+               :low-watermark 50
+               :high-watermark 80}}
   
   :clj-kondo
-  {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2022.05.31"}}
-   :main-opts  ["-m" "clj-kondo.main" "--lint" "src" "test" "--config" ".clj-kondo/config.edn"]}
-  
+  {:replace-paths ["src" "test"]
+   :replace-deps {clj-kondo/clj-kondo {:mvn/version "2022.05.31"}}
+   :main-opts  ["-m" "clj-kondo.main" "--lint" "src" "test"]} 
+
+  :security-scan-cp
+  {:replace-paths ["src" "resources"]
+   :replace-deps {org.clojure/clojure {:mvn/version "1.12.3"}
+                  org.clojure/core.async {:mvn/version "1.6.681"}
+                  redux/redux {:git/url "https://github.com/metabase/redux"
+                               :sha "4a37feaf817a2a6b5ef688c927f6fd4375964433"}}}
+
   :security-scan
-  {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2022.05.31"}}
-   :main-opts  ["-m" "clj-kondo.main" "--lint" "src" "test" "--config" "{:linters {:security {:level :warning}}}"]}}} 
+  {:replace-paths ["src" "resources" "test"]
+   :replace-deps {nvd-clojure/nvd-clojure {:mvn/version "5.2.0"}}
+   :main-opts ["-m" "nvd.task.check"]}
+
+  :test-runner
+  {:extra-paths ["test"]
+   :extra-deps {lambdaisland/kaocha {:mvn/version "1.60.972"}
+                lambdaisland/kaocha-junit-xml {:mvn/version "1.17.101"}}
+   :main-opts ["-m" "kaocha.runner"]}
+
+  :benchmark
+  {:extra-paths ["test"]
+   :extra-deps {criterium/criterium {:mvn/version "0.4.6"}}
+   :main-opts ["-e" "(require '[criterium.core :as crit])"]}
+
+  :repl
+  {:extra-deps {nrepl/nrepl {:mvn/version "0.8.3"}
+                cider/cider-nrepl {:mvn/version "0.26.0"}}
+   :main-opts ["-m" "nrepl.cmdline" "--middleware" "[cider.nrepl/cider-middleware]"]}
+
+  :dev
+  {:extra-paths ["test" "dev"]
+   :extra-deps {org.clojure/tools.namespace {:mvn/version "1.2.0"}
+                org.clojure/tools.trace {:mvn/version "0.7.11"}}}}}
