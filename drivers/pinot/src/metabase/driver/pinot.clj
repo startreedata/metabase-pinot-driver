@@ -62,11 +62,46 @@
   [_ query]
   (pinot.qp/mbql->native query))
 
+(defn- truncate-for-logging
+  "Safely truncate query content for logging to avoid exposing sensitive data and reduce log verbosity."
+  [query-str max-length]
+  (if (and query-str (> (count query-str) max-length))
+    (str (subs query-str 0 max-length) "... (truncated)")
+    query-str))
+
 (defn- add-timeout-to-query [query timeout]
-  (let [parsed (if (string? query)
-                 (json/parse-string query keyword)
-                 query)]
-    (assoc-in parsed [:queryOptions :timeoutMs] timeout)))
+  (log/debugf "add-timeout-to-query called with query type: %s, timeout: %s" 
+              (type query) timeout)
+  (cond
+    ;; If it's not a string, assume it's already a map/object
+    (not (string? query))
+    (do
+      (log/debugf "Query is not a string, adding timeout to existing map")
+      (assoc-in query [:queryOptions :timeoutMs] timeout))
+
+    ;; If it's a string that looks like JSON (starts with { or [)
+    :else
+    (let [trimmed-query (.trim query)]
+      (if (or (.startsWith trimmed-query "{")
+              (.startsWith trimmed-query "["))
+        (do
+          (log/debugf "Query appears to be JSON, attempting to parse")
+          (try
+            (let [parsed (json/parse-string query keyword)
+                  result (assoc-in parsed [:queryOptions :timeoutMs] timeout)]
+              (log/debugf "Successfully parsed JSON and added timeout")
+              result)
+            (catch Exception e
+              (log/warnf e "Failed to parse query as JSON, treating as SQL string: %s"
+                         (truncate-for-logging trimmed-query 100))
+              ;; Fall back to treating it as a SQL string
+              {:sql query :queryOptions {:timeoutMs timeout}})))
+
+        ;; If it's a raw SQL string, wrap it in proper Pinot query JSON structure
+        (do
+          (log/debugf "Query is SQL string, wrapping in JSON structure: %s"
+                      (truncate-for-logging trimmed-query 50))
+          {:sql query :queryOptions {:timeoutMs timeout}})))))
 
 (defmethod driver/execute-reducible-query :pinot
   [_driver query context respond]
