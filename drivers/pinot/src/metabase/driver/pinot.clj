@@ -16,20 +16,31 @@
   (:require
    [cheshire.core :as json]
    [clj-http.client :as http]
+   [clojure.set :as set]
+   [clojure.string :as str]
    [metabase.driver :as driver]
+   [metabase.driver.common.parameters :as params]
+   [metabase.driver.common.parameters.parse :as params.parse]
+   [metabase.driver.common.parameters.values :as params.values]
    [metabase.driver.pinot.client :as pinot.client]
    [metabase.driver.pinot.execute :as pinot.execute]
    [metabase.driver.pinot.query-processor :as pinot.qp]
    [metabase.driver.pinot.sync :as pinot.sync]
+   [metabase.lib.schema.common :as lib.schema.common]
+   [metabase.util :as u]
    [metabase.util.log :as log]
-   [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh]))
+   [metabase.util.malli :as mu]
+   [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh])
+  (:import
+   (metabase.driver.common.parameters Date)))
 
 (driver/register! :pinot)
 
 (doseq [[feature supported?] {:expression-aggregations        true
                               :schemas                        false
                               :set-timezone                   true
-                              :temporal/requires-default-unit true}]
+                              :temporal/requires-default-unit true
+                              :native-parameters              true}]
   (defmethod driver/database-supports? [:pinot feature] [_driver _feature _db] supported?))
 
 (defmethod driver/can-connect? :pinot
@@ -61,6 +72,181 @@
 (defmethod driver/mbql->native :pinot
   [_ query]
   (pinot.qp/mbql->native query))
+
+(defn- substitute-param-value
+  "Substitute a parameter value in Pinot query format.
+   For Pinot, we need to handle different parameter types appropriately."
+  [param-value]
+  (cond
+    ;; Handle no-value case
+    (= params/no-value param-value)
+    "1 = 1"
+    
+    ;; Handle arrays - extract the first value if it's a single-element array
+    (and (sequential? param-value) (= 1 (count param-value)))
+    (let [first-value (first param-value)]
+      (cond
+        (string? first-value)
+        (str "'" (str/replace first-value "'" "''") "'")
+        (number? first-value)
+        (str first-value)
+        (boolean? first-value)
+        (str first-value)
+        :else
+        (str "'" (str first-value) "'")))
+    
+    ;; Handle multi-element arrays - create IN clause
+    (and (sequential? param-value) (> (count param-value) 1))
+    (let [values (map (fn [v]
+                        (cond
+                          (string? v) (str "'" (str/replace v "'" "''") "'")
+                          (number? v) (str v)
+                          (boolean? v) (str v)
+                          :else (str "'" (str v) "'")))
+                      param-value)]
+      (str "(" (str/join ", " values) ")"))
+    
+    ;; Handle string values - escape single quotes
+    (string? param-value)
+    (str "'" (str/replace param-value "'" "''") "'")
+    
+    ;; Handle numbers
+    (number? param-value)
+    (str param-value)
+    
+    ;; Handle booleans
+    (boolean? param-value)
+    (str param-value)
+    
+    ;; Handle dates
+    (instance? Date param-value)
+    (str "'" (:s param-value) "'")
+    
+    ;; Handle field filters - these should be handled differently
+    (params/FieldFilter? param-value)
+    (let [{:keys [field value]} param-value]
+      (if (= params/no-value value)
+        "1 = 1"
+        (let [field-name (:name field)
+              field-value (cond
+                           ;; Handle arrays in field filters
+                           (and (sequential? value) (= 1 (count value)))
+                           (let [first-value (first value)]
+                             (cond
+                               (string? first-value) (str "'" (str/replace first-value "'" "''") "'")
+                               (number? first-value) (str first-value)
+                               (boolean? first-value) (str first-value)
+                               :else (str "'" (str first-value) "'")))
+                           
+                           (and (sequential? value) (> (count value) 1))
+                           (let [values (map (fn [v]
+                                               (cond
+                                                 (string? v) (str "'" (str/replace v "'" "''") "'")
+                                                 (number? v) (str v)
+                                                 (boolean? v) (str v)
+                                                 :else (str "'" (str v) "'")))
+                                             value)]
+                             (str "(" (str/join ", " values) ")"))
+                           
+                           (string? value) (str "'" (str/replace value "'" "''") "'")
+                           (number? value) (str value)
+                           (boolean? value) (str value)
+                           :else (str "'" value "'"))]
+          (if (and (sequential? value) (> (count value) 1))
+            (str "\"" field-name "\" IN " field-value)
+            (str "\"" field-name "\" = " field-value)))))
+    
+    ;; Handle referenced card queries
+    (params/ReferencedCardQuery? param-value)
+    (let [{:keys [query]} param-value]
+      (if (string? query)
+        query
+        (json/generate-string query)))
+    
+    ;; Handle referenced query snippets
+    (params/ReferencedQuerySnippet? param-value)
+    (:content param-value)
+    
+    ;; Default case - convert to string
+    :else
+    (str "'" (str param-value) "'")))
+
+(defn- substitute-param
+  "Substitute a single parameter in the parsed query."
+  [param->value [sql args missing] in-optional? {:keys [k]}]
+  (if-not (contains? param->value k)
+    [sql args (conj missing k)]
+    (let [v (get param->value k)]
+      (cond
+        (= params/no-value v)
+        (if in-optional?
+          [sql args (conj missing k)]
+          [(str sql " 1 = 1") args missing])
+        
+        :else
+        (let [substituted-value (substitute-param-value v)]
+          [(str sql substituted-value) args missing])))))
+
+(declare substitute*)
+
+(defn- substitute-optional
+  "Substitute an optional parameter clause."
+  [param->value [sql args missing] {subclauses :args}]
+  (let [[opt-sql opt-args opt-missing] (substitute* param->value subclauses true)]
+    (if (seq opt-missing)
+      [sql args missing]
+      [(str sql opt-sql) (concat args opt-args) missing])))
+
+(defn- substitute*
+  "Recursively substitute parameters in parsed query."
+  [param->value parsed in-optional?]
+  (reduce
+   (fn [[sql args missing] x]
+     (cond
+       (string? x)
+       [(str sql x) args missing]
+       
+       (params/Param? x)
+       (substitute-param param->value [sql args missing] in-optional? x)
+       
+       (params/Optional? x)
+       (substitute-optional param->value [sql args missing] x)))
+   ["" [] #{}]
+   parsed))
+
+(defn- substitute-parameters
+  "Substitute parameters in a parsed query for Pinot."
+  [parsed-query param->value]
+  (log/tracef "Substituting params for Pinot\n%s\nin query:\n%s" 
+              (u/pprint-to-str param->value) 
+              (u/pprint-to-str parsed-query))
+  (let [[sql args missing] (try
+                             (substitute* param->value parsed-query false)
+                             (catch Throwable e
+                               (throw (ex-info (str "Unable to substitute parameters: " (ex-message e))
+                                               {:params param->value
+                                                :parsed-query parsed-query}
+                                               e))))]
+    (log/tracef "Substituted SQL: %s" sql)
+    (when (seq missing)
+      (throw (ex-info (str "Cannot run the query: missing required parameters: " (set missing))
+                      {:missing missing})))
+    [sql args]))
+
+(mu/defmethod driver/substitute-native-parameters :pinot
+  [_driver {:keys [query] :as inner-query} :- [:and [:map-of :keyword :any] [:map {:query ::lib.schema.common/non-blank-string}]]]
+  (log/debugf "Substituting native parameters for Pinot driver. Query: %s" query)
+  (let [params-map          (params.values/query->params-map inner-query)
+        referenced-card-ids (params.values/referenced-card-ids params-map)
+        [query params]      (-> query
+                                params.parse/parse
+                                (substitute-parameters params-map))]
+    (log/debugf "Parameter substitution result - Query: %s, Params: %s" query params)
+    (cond-> (assoc inner-query
+                   :query  query
+                   :params params)
+      (seq referenced-card-ids)
+      (update :query-permissions/referenced-card-ids set/union referenced-card-ids))))
 
 (defn- truncate-for-logging
   "Safely truncate query content for logging to avoid exposing sensitive data and reduce log verbosity."

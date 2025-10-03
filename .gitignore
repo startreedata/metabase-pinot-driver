@@ -46,6 +46,7 @@ examples/
 .env.development.local
 .env.test.local
 .env.production.local
+.java-version
 
 .clj-kondo/
 .lsp/

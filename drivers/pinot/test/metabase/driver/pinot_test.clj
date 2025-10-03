@@ -34,4 +34,71 @@
 
 (deftest pinot-driver-connection-test
   (testing "Pinot driver should have connection details"
-    (is (some? (driver/connection-properties :pinot))))) 
+    (is (some? (driver/connection-properties :pinot)))))
+
+(deftest pinot-driver-native-parameters-test
+  (testing "Pinot driver should support native parameters"
+    (is (true? (driver/database-supports? :pinot :native-parameters nil)))))
+
+(deftest pinot-driver-template-tag-substitution-test
+  (testing "Pinot driver should substitute template tags correctly"
+    (let [query {:query "SELECT * FROM table WHERE name = {{name}}"
+                 :template-tags {"name" {:name "name" 
+                                         :display-name "Name"
+                                         :type "text"}}
+                 :parameters [{:type "text"
+                               :target [:variable [:template-tag "name"]]
+                               :value "John"}]}
+          result (driver/substitute-native-parameters :pinot query)]
+      (is (= "SELECT * FROM table WHERE name = 'John'" (:query result)))
+      (is (empty? (:params result))))))
+
+(deftest pinot-driver-optional-template-tag-test
+  (testing "Pinot driver should handle optional template tags"
+    (let [query {:query "SELECT * FROM table [[WHERE age > {{minAge}}]]"
+                 :template-tags {"minAge" {:name "minAge"
+                                           :display-name "Minimum Age"
+                                           :type "number"}}
+                 :parameters [{:type "number"
+                               :target [:variable [:template-tag "minAge"]]
+                               :value 18}]}
+          result (driver/substitute-native-parameters :pinot query)]
+      (is (= "SELECT * FROM table WHERE age > 18" (:query result)))
+      (is (empty? (:params result))))))
+
+(deftest pinot-driver-missing-optional-template-tag-test
+  (testing "Pinot driver should handle missing optional template tags"
+    (let [query {:query "SELECT * FROM table [[WHERE age > {{minAge}}]]"
+                 :template-tags {"minAge" {:name "minAge"
+                                           :display-name "Minimum Age"
+                                           :type "number"}}
+                 :parameters []}
+          result (driver/substitute-native-parameters :pinot query)]
+      (is (= "SELECT * FROM table" (:query result)))
+      (is (empty? (:params result))))))
+
+(deftest pinot-driver-array-parameter-test
+  (testing "Pinot driver should handle array parameters correctly"
+    (let [query {:query "SELECT * FROM table WHERE name = {{name}}"
+                 :template-tags {"name" {:name "name" 
+                                         :display-name "Name"
+                                         :type "text"}}
+                 :parameters [{:type "text"
+                               :target [:variable [:template-tag "name"]]
+                               :value ["value"]}]}
+          result (driver/substitute-native-parameters :pinot query)]
+      (is (= "SELECT * FROM table WHERE name = 'value'" (:query result)))
+      (is (empty? (:params result))))))
+
+(deftest pinot-driver-multiple-array-parameter-test
+  (testing "Pinot driver should handle multiple array parameters correctly"
+    (let [query {:query "SELECT * FROM table WHERE state IN {{states}}"
+                 :template-tags {"states" {:name "states" 
+                                           :display-name "States"
+                                           :type "text"}}
+                 :parameters [{:type "text"
+                               :target [:variable [:template-tag "states"]]
+                               :value ["value 1" "value 2" "value 3"]}]}
+          result (driver/substitute-native-parameters :pinot query)]
+      (is (= "SELECT * FROM table WHERE state IN ('value 1', 'value 2', 'value 3')" (:query result)))
+      (is (empty? (:params result)))))) 
