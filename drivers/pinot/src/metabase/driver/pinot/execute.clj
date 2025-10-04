@@ -103,10 +103,13 @@
                          remove-bonus-keys
                          vec)
                     (let [first-result (first (:results result))]
-                        (if (map? first-result) ;; Check if first result is a map
+                        (if (and first-result (map? first-result)) ;; Check if first result exists and is a map
                           ;; Keep column names as strings for native queries since Pinot row data uses string keys
                           (vec (keys first-result))
-                          (throw (ex-info "Expected the first result to be a map" {:first-result first-result})))))
+                          ;; If no results or first result is not a map, use projections from the schema
+                          (if (seq projections)
+                            (vec projections)
+                            []))))
         metadata (result-metadata col-names)
         annotate-col-names (->> (annotate/merged-column-info outer-query metadata)
                                 (map (comp keyword :name)))

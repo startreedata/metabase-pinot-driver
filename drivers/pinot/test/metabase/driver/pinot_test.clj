@@ -15,7 +15,8 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [metabase.driver :as driver]
-   [metabase.driver.pinot]))
+   [metabase.driver.pinot]
+   [metabase.driver.pinot.execute]))
 
 (deftest pinot-driver-registration-test
   (testing "Pinot driver should be registered"
@@ -101,4 +102,24 @@
                                :value ["value 1" "value 2" "value 3"]}]}
           result (driver/substitute-native-parameters :pinot query)]
       (is (= "SELECT * FROM table WHERE state IN ('value 1', 'value 2', 'value 3')" (:query result)))
-      (is (empty? (:params result)))))) 
+      (is (empty? (:params result))))))
+
+(deftest pinot-driver-empty-results-test
+  (testing "Pinot driver should handle empty result sets without error"
+    (let [empty-result {:projections ["DestStateName" "count(*)"]
+                        :results []}
+          query {:native {:mbql? false}}
+          ;; Mock the respond function to capture the result
+          captured-result (atom nil)
+          respond-fn (fn [metadata rows]
+                       (reset! captured-result {:metadata metadata :rows rows}))]
+      
+      ;; This should not throw an exception
+      (is (not (thrown? Exception
+                       (metabase.driver.pinot.execute/reduce-results 
+                        query empty-result respond-fn))))
+      
+      ;; Verify the result structure
+      (is (some? @captured-result))
+      (is (= [] (:rows @captured-result)))
+      (is (some? (:metadata @captured-result)))))) 
