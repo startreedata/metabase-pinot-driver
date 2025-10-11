@@ -126,26 +126,38 @@
   "Execute a query for a Pinot DB."
   [execute* {{:keys [query]} :native :as mbql-query} respond]
   {:pre [query]}
+  (log/debugf "*** PINOT EXECUTE: execute-reducible-query called with mbql-query: %s" (u/pprint-to-str mbql-query))
   (let [details    (:details (lib.metadata/database (qp.store/metadata-provider)))
         query      (if (string? query)
-                     (json/parse-string query keyword)
-                     query)
+                     (do
+                       (log/debugf "*** PINOT EXECUTE: Parsing string query: %s" query)
+                       (json/parse-string query keyword))
+                     (do
+                       (log/debugf "*** PINOT EXECUTE: Query is already parsed: %s" (u/pprint-to-str query))
+                       query))
         results    (try
+                     (log/debugf "*** PINOT EXECUTE: Executing query with details: %s" (u/pprint-to-str details))
                      (execute* details query)
                      (catch Throwable e
+                       (log/errorf e "Error executing query: %s" (ex-message e))
                        (throw (ex-info (tru "Error executing query: {0}" (ex-message e))
                                        {:type  qp.error-type/db
                                         :query query}
                                        e))))
-        result     (try (post-process results)
-                        (catch Throwable e
-                          (throw (ex-info (tru "Error post-processing Pinot query results")
-                                          {:type    qp.error-type/driver
-                                           :results results}
-                                          e))))]
+        result     (try 
+                     (log/debugf "*** PINOT EXECUTE: Post-processing results: %s" (u/pprint-to-str results))
+                     (post-process results)
+                     (catch Throwable e
+                       (log/errorf e "Error post-processing Pinot query results: %s" (ex-message e))
+                       (throw (ex-info (tru "Error post-processing Pinot query results")
+                                       {:type    qp.error-type/driver
+                                        :results results}
+                                       e))))]
+    (log/debugf "*** PINOT EXECUTE: Post-processed result: %s" (u/pprint-to-str result))
     (try
       (reduce-results mbql-query result respond)
       (catch Throwable e
+        (log/errorf e "Error reducing Pinot query results: %s" (ex-message e))
         (throw (ex-info (tru "Error reducing Pinot query results")
                         {:type           qp.error-type/driver
                          :results        results

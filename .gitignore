@@ -9,6 +9,7 @@ pom.xml
 pom.xml.asc
 *.jar
 *.class
+custom-log4j2.xml
 
 # Node.js
 node_modules/

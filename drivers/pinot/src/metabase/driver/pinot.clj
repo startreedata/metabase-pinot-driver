@@ -35,6 +35,8 @@
    (metabase.driver.common.parameters Date)))
 
 (driver/register! :pinot)
+(log/debugf "*** PINOT DRIVER: Pinot driver registered successfully!")
+(println "*** PINOT DRIVER: Pinot driver registered successfully!") ; Also print to stdout
 
 (doseq [[feature supported?] {:expression-aggregations        true
                               :schemas                        false
@@ -77,14 +79,21 @@
   "Substitute a parameter value in Pinot query format.
    For Pinot, we need to handle different parameter types appropriately."
   [param-value]
+  (log/debugf "substitute-param-value called with param-value: %s (type: %s)" 
+              (u/pprint-to-str param-value) (type param-value))
+  
   (cond
     ;; Handle no-value case
     (= params/no-value param-value)
-    "1 = 1"
+    (do
+      (log/debugf "Handling no-value case, throwing error to inform user")
+      (throw (ex-info "No values selected for parameter. Please select at least one value."
+                      {:type :metabase.driver/parameter-no-values})))
     
     ;; Handle arrays - extract the first value if it's a single-element array
     (and (sequential? param-value) (= 1 (count param-value)))
     (let [first-value (first param-value)]
+      (log/debugf "Handling single-element array: %s" first-value)
       (cond
         (string? first-value)
         (str "'" (str/replace first-value "'" "''") "'")
@@ -104,88 +113,236 @@
                           (boolean? v) (str v)
                           :else (str "'" (str v) "'")))
                       param-value)]
+      (log/debugf "Handling multi-element array with %d values: %s" (count param-value) values)
       (str "(" (str/join ", " values) ")"))
     
     ;; Handle string values - escape single quotes
     (string? param-value)
-    (str "'" (str/replace param-value "'" "''") "'")
+    (do
+      (log/debugf "Handling string value: %s" param-value)
+      (str "'" (str/replace param-value "'" "''") "'"))
     
     ;; Handle numbers
     (number? param-value)
-    (str param-value)
+    (do
+      (log/debugf "Handling number value: %s" param-value)
+      (str param-value))
     
     ;; Handle booleans
     (boolean? param-value)
-    (str param-value)
+    (do
+      (log/debugf "Handling boolean value: %s" param-value)
+      (str param-value))
     
     ;; Handle dates
     (instance? Date param-value)
-    (str "'" (:s param-value) "'")
+    (do
+      (log/debugf "Handling date value: %s" (:s param-value))
+      (str "'" (:s param-value) "'"))
     
     ;; Handle field filters - these should be handled differently
     (params/FieldFilter? param-value)
     (let [{:keys [field value]} param-value]
+      (log/debugf "Handling FieldFilter - field: %s, value: %s (type: %s)" 
+                  (u/pprint-to-str field) (u/pprint-to-str value) (type value))
       (if (= params/no-value value)
-        "1 = 1"
+        (do
+          (log/debugf "FieldFilter has no-value, throwing error to inform user")
+          (throw (ex-info "No values selected for field filter. Please select at least one value."
+                          {:type :metabase.driver/field-filter-no-values
+                           :field-name (:name field)
+                           :field-id (:id field)})))
         (let [field-name (:name field)
+              ;; Extract the actual values and operator type from the FieldFilter value structure
+              actual-values (if (and (map? value) (contains? value :value))
+                              (:value value)  ; FieldFilter value is a map with :value key
+                              value)          ; FieldFilter value is the actual value
+              operator-type (if (and (map? value) (contains? value :type))
+                             (:type value)    ; Extract operator type from FieldFilter value
+                             :string/=)       ; Default to equality
+              case-sensitive (if (and (map? value) (contains? value :options))
+                              (get-in value [:options :case-sensitive])
+                              false)          ; Default to case-insensitive
               field-value (cond
                            ;; Handle arrays in field filters
-                           (and (sequential? value) (= 1 (count value)))
-                           (let [first-value (first value)]
+                           (and (sequential? actual-values) (= 1 (count actual-values)))
+                           (let [first-value (first actual-values)]
+                             (log/debugf "FieldFilter single-element array: %s" first-value)
                              (cond
                                (string? first-value) (str "'" (str/replace first-value "'" "''") "'")
                                (number? first-value) (str first-value)
                                (boolean? first-value) (str first-value)
                                :else (str "'" (str first-value) "'")))
                            
-                           (and (sequential? value) (> (count value) 1))
+                           (and (sequential? actual-values) (> (count actual-values) 1))
                            (let [values (map (fn [v]
                                                (cond
                                                  (string? v) (str "'" (str/replace v "'" "''") "'")
                                                  (number? v) (str v)
                                                  (boolean? v) (str v)
                                                  :else (str "'" (str v) "'")))
-                                             value)]
+                                             actual-values)]
+                             (log/debugf "FieldFilter multi-element array with %d values: %s" (count actual-values) values)
                              (str "(" (str/join ", " values) ")"))
                            
-                           (string? value) (str "'" (str/replace value "'" "''") "'")
-                           (number? value) (str value)
-                           (boolean? value) (str value)
-                           :else (str "'" value "'"))]
-          (if (and (sequential? value) (> (count value) 1))
-            (str "\"" field-name "\" IN " field-value)
-            (str "\"" field-name "\" = " field-value)))))
+                           (string? actual-values) (do
+                                                    (log/debugf "FieldFilter string value: %s" actual-values)
+                                                    (str "'" (str/replace actual-values "'" "''") "'"))
+                           (number? actual-values) (do
+                                                    (log/debugf "FieldFilter number value: %s" actual-values)
+                                                    (str actual-values))
+                           (boolean? actual-values) (do
+                                                     (log/debugf "FieldFilter boolean value: %s" actual-values)
+                                                     (str actual-values))
+                           :else (do
+                                  (log/debugf "FieldFilter other value: %s" actual-values)
+                                  (str "'" actual-values "'")))]
+          (let [result (cond
+                        ;; Handle nil values - throw error to inform user
+                        (nil? actual-values)
+                        (do
+                          (log/debugf "FieldFilter has nil values, throwing error to inform user")
+                          (throw (ex-info "No values selected for field filter. Please select at least one value."
+                                          {:type :metabase.driver/field-filter-no-values
+                                           :field-name field-name
+                                           :field-id (:id field)})))
+                        
+                        ;; Handle empty arrays - throw error to inform user
+                        (and (sequential? actual-values) (empty? actual-values))
+                        (do
+                          (log/debugf "FieldFilter has empty array, throwing error to inform user")
+                          (throw (ex-info "No values selected for field filter. Please select at least one value."
+                                          {:type :metabase.driver/field-filter-no-values
+                                           :field-name field-name
+                                           :field-id (:id field)})))
+                        
+                        ;; Handle different operator types
+                        (= operator-type :string/contains)
+                        (if (and (sequential? actual-values) (> (count actual-values) 1))
+                          ;; Multiple values with contains - use OR with LIKE
+                          (let [like-clauses (map (fn [v]
+                                                    (let [escaped-value (str/replace (str v) "'" "''")
+                                                          like-value (str "'%" escaped-value "%'")]
+                                                      (str "\"" field-name "\" LIKE " like-value)))
+                                                  actual-values)]
+                            (str "(" (str/join " OR " like-clauses) ")"))
+                          ;; Single value with contains - use LIKE
+                          (let [escaped-value (str/replace (str (first actual-values)) "'" "''")
+                                like-value (str "'%" escaped-value "%'")]
+                            (str "\"" field-name "\" LIKE " like-value)))
+                        
+                        (= operator-type :string/does-not-contain)
+                        (if (and (sequential? actual-values) (> (count actual-values) 1))
+                          ;; Multiple values with does-not-contain - use AND with NOT LIKE
+                          (let [not-like-clauses (map (fn [v]
+                                                        (let [escaped-value (str/replace (str v) "'" "''")
+                                                              like-value (str "'%" escaped-value "%'")]
+                                                          (str "\"" field-name "\" NOT LIKE " like-value)))
+                                                      actual-values)]
+                            (str "(" (str/join " AND " not-like-clauses) ")"))
+                          ;; Single value with does-not-contain - use NOT LIKE
+                          (let [escaped-value (str/replace (str (first actual-values)) "'" "''")
+                                like-value (str "'%" escaped-value "%'")]
+                            (str "\"" field-name "\" NOT LIKE " like-value)))
+                        
+                        (= operator-type :string/starts-with)
+                        (if (and (sequential? actual-values) (> (count actual-values) 1))
+                          ;; Multiple values with starts-with - use OR with LIKE
+                          (let [like-clauses (map (fn [v]
+                                                    (let [escaped-value (str/replace (str v) "'" "''")
+                                                          like-value (str "'" escaped-value "%'")]
+                                                      (str "\"" field-name "\" LIKE " like-value)))
+                                                  actual-values)]
+                            (str "(" (str/join " OR " like-clauses) ")"))
+                          ;; Single value with starts-with - use LIKE
+                          (let [escaped-value (str/replace (str (first actual-values)) "'" "''")
+                                like-value (str "'" escaped-value "%'")]
+                            (str "\"" field-name "\" LIKE " like-value)))
+                        
+                        (= operator-type :string/ends-with)
+                        (if (and (sequential? actual-values) (> (count actual-values) 1))
+                          ;; Multiple values with ends-with - use OR with LIKE
+                          (let [like-clauses (map (fn [v]
+                                                    (let [escaped-value (str/replace (str v) "'" "''")
+                                                          like-value (str "'%" escaped-value "'")]
+                                                      (str "\"" field-name "\" LIKE " like-value)))
+                                                  actual-values)]
+                            (str "(" (str/join " OR " like-clauses) ")"))
+                          ;; Single value with ends-with - use LIKE
+                          (let [escaped-value (str/replace (str (first actual-values)) "'" "''")
+                                like-value (str "'%" escaped-value "'")]
+                            (str "\"" field-name "\" LIKE " like-value)))
+                        
+                        (= operator-type :string/!=)
+                        (if (and (sequential? actual-values) (> (count actual-values) 1))
+                          ;; Multiple values with not equal - use NOT IN
+                          (str "\"" field-name "\" NOT IN " field-value)
+                          ;; Single value with not equal - use !=
+                          (str "\"" field-name "\" != " field-value))
+                        
+                        (= operator-type :string/=)
+                        (if (and (sequential? actual-values) (> (count actual-values) 1))
+                          ;; Multiple values with equal - use IN
+                          (str "\"" field-name "\" IN " field-value)
+                          ;; Single value with equal - use =
+                          (str "\"" field-name "\" = " field-value))
+                        
+                        ;; Default case: equality or IN
+                        :else
+                        (if (and (sequential? actual-values) (> (count actual-values) 1))
+                          ;; Multiple values - use IN
+                          (str "\"" field-name "\" IN " field-value)
+                          ;; Single value - use =
+                          (str "\"" field-name "\" = " field-value)))]
+            (log/debugf "FieldFilter result (operator: %s): %s" operator-type result)
+            result))))
     
     ;; Handle referenced card queries
     (params/ReferencedCardQuery? param-value)
     (let [{:keys [query]} param-value]
+      (log/debugf "Handling ReferencedCardQuery: %s" (u/pprint-to-str query))
       (if (string? query)
         query
         (json/generate-string query)))
     
     ;; Handle referenced query snippets
     (params/ReferencedQuerySnippet? param-value)
-    (:content param-value)
+    (do
+      (log/debugf "Handling ReferencedQuerySnippet: %s" (:content param-value))
+      (:content param-value))
     
     ;; Default case - convert to string
     :else
-    (str "'" (str param-value) "'")))
+    (do
+      (log/debugf "Handling default case, converting to string: %s" param-value)
+      (str "'" (str param-value) "'"))))
 
 (defn- substitute-param
   "Substitute a single parameter in the parsed query."
   [param->value [sql args missing] in-optional? {:keys [k]}]
+  (log/debugf "substitute-param called with key: %s, param->value: %s, sql: %s" 
+              k (u/pprint-to-str param->value) sql)
   (if-not (contains? param->value k)
-    [sql args (conj missing k)]
+    (do
+      (log/debugf "Parameter key %s not found in param->value" k)
+      [sql args (conj missing k)])
     (let [v (get param->value k)]
+      (log/debugf "Found parameter value for key %s: %s (type: %s)" k (u/pprint-to-str v) (type v))
       (cond
         (= params/no-value v)
-        (if in-optional?
-          [sql args (conj missing k)]
-          [(str sql " 1 = 1") args missing])
+        (do
+          (log/debugf "Parameter has no-value, throwing error to inform user")
+          (throw (ex-info "No values selected for parameter. Please select at least one value."
+                          {:type :metabase.driver/parameter-no-values
+                           :parameter-key k})))
         
         :else
         (let [substituted-value (substitute-param-value v)]
-          [(str sql substituted-value) args missing])))))
+          (log/debugf "Substituted value for key %s: %s" k substituted-value)
+          (if (empty? substituted-value)
+            ;; If substituted value is empty, don't add anything to SQL
+            [sql args missing]
+            [(str sql substituted-value) args missing]))))))
 
 (declare substitute*)
 
@@ -217,17 +374,21 @@
 (defn- substitute-parameters
   "Substitute parameters in a parsed query for Pinot."
   [parsed-query param->value]
+  (log/debugf "substitute-parameters called with param->value: %s" (u/pprint-to-str param->value))
   (log/tracef "Substituting params for Pinot\n%s\nin query:\n%s" 
               (u/pprint-to-str param->value) 
               (u/pprint-to-str parsed-query))
   (let [[sql args missing] (try
                              (substitute* param->value parsed-query false)
                              (catch Throwable e
+                               (log/errorf e "Error substituting parameters: %s" (ex-message e))
                                (throw (ex-info (str "Unable to substitute parameters: " (ex-message e))
                                                {:params param->value
                                                 :parsed-query parsed-query}
                                                e))))]
-    (log/tracef "Substituted SQL: %s" sql)
+    (log/debugf "Substituted SQL: %s" sql)
+    (log/debugf "Substituted args: %s" args)
+    (log/debugf "Missing parameters: %s" missing)
     (when (seq missing)
       (throw (ex-info (str "Cannot run the query: missing required parameters: " (set missing))
                       {:missing missing})))
@@ -235,18 +396,21 @@
 
 (mu/defmethod driver/substitute-native-parameters :pinot
   [_driver {:keys [query] :as inner-query} :- [:and [:map-of :keyword :any] [:map {:query ::lib.schema.common/non-blank-string}]]]
-  (log/debugf "Substituting native parameters for Pinot driver. Query: %s" query)
+  (log/debugf "*** PINOT DRIVER: substitute-native-parameters called with query: %s" query)
+  (log/debugf "*** PINOT DRIVER: inner-query: %s" (u/pprint-to-str inner-query))
   (let [params-map          (params.values/query->params-map inner-query)
-        referenced-card-ids (params.values/referenced-card-ids params-map)
-        [query params]      (-> query
-                                params.parse/parse
-                                (substitute-parameters params-map))]
-    (log/debugf "Parameter substitution result - Query: %s, Params: %s" query params)
-    (cond-> (assoc inner-query
-                   :query  query
-                   :params params)
-      (seq referenced-card-ids)
-      (update :query-permissions/referenced-card-ids set/union referenced-card-ids))))
+        referenced-card-ids (params.values/referenced-card-ids params-map)]
+    (log/debugf "*** PINOT DRIVER: params-map: %s" (u/pprint-to-str params-map))
+    (log/debugf "*** PINOT DRIVER: referenced-card-ids: %s" referenced-card-ids)
+    (let [parsed-query (params.parse/parse query)]
+      (log/debugf "*** PINOT DRIVER: parsed-query: %s" (u/pprint-to-str parsed-query))
+      (let [[final-query params] (substitute-parameters parsed-query params-map)]
+        (log/debugf "*** PINOT DRIVER: Parameter substitution result - Final Query: %s, Params: %s" final-query params)
+        (cond-> (assoc inner-query
+                       :query  final-query
+                       :params params)
+          (seq referenced-card-ids)
+          (update :query-permissions/referenced-card-ids set/union referenced-card-ids))))))
 
 (defn- truncate-for-logging
   "Safely truncate query content for logging to avoid exposing sensitive data and reduce log verbosity."
@@ -291,7 +455,7 @@
 
 (defmethod driver/execute-reducible-query :pinot
   [_driver query context respond]
-   (log/debugf "Executing reducible Pinot query: %s" query)
+   (log/debugf "*** PINOT DRIVER: Executing reducible Pinot query: %s" (u/pprint-to-str query))
 
   (pinot.execute/execute-reducible-query
    (partial pinot.client/do-query-with-cancellation (:canceled-chan context))

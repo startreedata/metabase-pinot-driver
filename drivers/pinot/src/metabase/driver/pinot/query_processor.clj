@@ -57,26 +57,39 @@
 
 (defn- resolve-field
   [field-clause]
-  (log/debugf "Resolving field clause: %s" field-clause)
+  (log/debugf "resolve-field called with field-clause: %s (type: %s)" field-clause (type field-clause))
   (if (and (sequential? field-clause) (>= (count field-clause) 2))
     (let [[_ field-id options] field-clause
           field-name (cond
                        (integer? field-id)
-                       (-> (qp.store/metadata-provider)
-                           (lib.metadata/field field-id)
-                           :name)
+                       (let [resolved-name (-> (qp.store/metadata-provider)
+                                               (lib.metadata/field field-id)
+                                               :name)]
+                         (log/debugf "Resolved field ID %s to name: %s" field-id resolved-name)
+                         resolved-name)
 
                        (map? options)
-                       (:name options)
+                       (let [resolved-name (:name options)]
+                         (log/debugf "Resolved field from options: %s" resolved-name)
+                         resolved-name)
 
                        :else
-                       (str "unknown-field-" field-id))]
-      (str "\"" field-name "\""))
-    (throw (ex-info "Invalid field clause structure" {:field-clause field-clause}))))
+                       (let [resolved-name (str "unknown-field-" field-id)]
+                         (log/debugf "Using fallback field name: %s" resolved-name)
+                         resolved-name))]
+      (let [result (str "\"" field-name "\"")]
+        (log/debugf "resolve-field result: %s" result)
+        result))
+    (do
+      (log/errorf "Invalid field clause structure: %s" field-clause)
+      (throw (ex-info "Invalid field clause structure" {:field-clause field-clause})))))
 
 (defn- resolve-value [value-struct]
-  (let [[_ value _] value-struct]
-    (str "'" value "'")))
+  (log/debugf "resolve-value called with value-struct: %s (type: %s)" value-struct (type value-struct))
+  (let [[_ value _] value-struct
+        result (str "'" value "'")]
+    (log/debugf "resolve-value result: %s" result)
+    result))
 
 (defmethod ->rvalue :field
   [[_ id-or-name]]
@@ -116,35 +129,51 @@
   [original-query pinot-query]
   ;; Extract filters from the original query and add to pinot-query
   (let [filters (:filter original-query)]
+    (log/debugf "handle-filter called with filters: %s" (u/pprint-to-str filters))
     (letfn [(filter-clause [filter]
+              (log/debugf "filter-clause called with filter: %s (type: %s)" filter (type filter))
               (if (vector? filter)
                 (let [[op & args] filter]
                   ;; log op and args
-                  (log/debugf "Processing filter clause: %s, op: %s, args: %s" filter, op, args)
+                  (log/debugf "Processing filter clause: %s, op: %s, args: %s" filter op args)
                   (case op
                     :and (str "(" (str/join " AND " (map filter-clause args)) ")")
                     :or (str "(" (str/join " OR " (map filter-clause args)) ")")
                     :not (str "NOT " (filter-clause (first args)))
                     :between (let [[field lower upper] args]
+                                (log/debugf "Processing between filter - field: %s, lower: %s, upper: %s" field lower upper)
                                 (str (resolve-field field) " BETWEEN " (resolve-value lower) " AND " (resolve-value upper)))
                     := (let [[field value] args]
+                          (log/debugf "Processing equals filter - field: %s, value: %s" field value)
                           (str (resolve-field field) " = " (resolve-value value)))
                     :> (let [[field value] args]
+                          (log/debugf "Processing greater than filter - field: %s, value: %s" field value)
                           (str (resolve-field field) " > " (resolve-value value)))
                     :< (let [[field value] args]
+                          (log/debugf "Processing less than filter - field: %s, value: %s" field value)
                           (str (resolve-field field) " < " (resolve-value value)))
                     :<= (let [[field value] args]
+                           (log/debugf "Processing less than or equal filter - field: %s, value: %s" field value)
                            (str (resolve-field field) " <= " (resolve-value value)))
                     :>= (let [[field value] args]
+                           (log/debugf "Processing greater than or equal filter - field: %s, value: %s" field value)
                            (str (resolve-field field) " >= " (resolve-value value)))
                     :!= (let [[field value] args]
+                           (log/debugf "Processing not equal filter - field: %s, value: %s" field value)
                            (str (resolve-field field) " != " (resolve-value value)))
-                    (throw (ex-info "Unsupported filter operation" {:filter filter}))))
-                (throw (ex-info "Invalid filter format" {:filter filter}))))]
+                    (do
+                      (log/errorf "Unsupported filter operation: %s" op)
+                      (throw (ex-info "Unsupported filter operation" {:filter filter})))))
+                (do
+                  (log/errorf "Invalid filter format: %s" filter)
+                  (throw (ex-info "Invalid filter format" {:filter filter})))))]
       (if filters
         (let [where-clause (filter-clause filters)]
+          (log/debugf "Generated where clause: %s" where-clause)
           (assoc-in pinot-query [:query :where] where-clause))
-        pinot-query))))
+        (do
+          (log/debugf "No filters found")
+          pinot-query)))))
 
 ;;; ----------------------------------------------- handle-aggregation -----------------------------------------------
 (defn- handle-aggregations
