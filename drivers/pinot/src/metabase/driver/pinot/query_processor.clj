@@ -59,40 +59,70 @@
   [field-clause]
   (log/debugf "resolve-field called with field-clause: %s (type: %s)" field-clause (type field-clause))
   (if (and (sequential? field-clause) (>= (count field-clause) 2))
-    (let [[_ field-id options] field-clause
-          field-name (cond
-                       (integer? field-id)
-                       (let [resolved-name (-> (qp.store/metadata-provider)
-                                               (lib.metadata/field field-id)
-                                               :name)]
-                         (log/debugf "Resolved field ID %s to name: %s" field-id resolved-name)
-                         resolved-name)
+    (let [[op & args] field-clause]
+      (cond
+        ;; Handle function calls like [:lower [:field ...]] for case-insensitive search
+        ;; This is used by search box filters to enable case-insensitive LIKE operations
+        (= op :lower)
+        (let [inner-field (first args)]
+          (log/debugf "Processing lower function on field: %s" inner-field)
+          (str "LOWER(" (resolve-field inner-field) ")"))
+        
+        ;; Handle regular field references
+        :else
+        (let [[_ field-id options] field-clause
+              field-name (cond
+                           ;; Integer field IDs from Metabase's internal field references
+                           (integer? field-id)
+                           (let [resolved-name (-> (qp.store/metadata-provider)
+                                                   (lib.metadata/field field-id)
+                                                   :name)]
+                             (log/debugf "Resolved field ID %s to name: %s" field-id resolved-name)
+                             resolved-name)
 
-                       (string? field-id)
-                       (do
-                         (log/debugf "Using field name directly: %s" field-id)
-                         field-id)
+                           ;; String field IDs from dropdown variables from other questions
+                           ;; This is crucial for making dropdown variables work correctly
+                           (string? field-id)
+                           (do
+                             (log/debugf "Using field name directly: %s" field-id)
+                             field-id)
 
-                       (map? options)
-                       (let [resolved-name (:name options)]
-                         (log/debugf "Resolved field from options: %s" resolved-name)
-                         resolved-name)
+                           ;; Field names from options map (fallback)
+                           (map? options)
+                           (let [resolved-name (:name options)]
+                             (log/debugf "Resolved field from options: %s" resolved-name)
+                             resolved-name)
 
-                       :else
-                       (let [resolved-name (str "unknown-field-" field-id)]
-                         (log/debugf "Using fallback field name: %s" resolved-name)
-                         resolved-name))]
-      (let [result (str "\"" field-name "\"")]
-        (log/debugf "resolve-field result: %s" result)
-        result))
+                           ;; Fallback for unknown field types
+                           :else
+                           (let [resolved-name (str "unknown-field-" field-id)]
+                             (log/debugf "Using fallback field name: %s" resolved-name)
+                             resolved-name))]
+          (let [result (str "\"" field-name "\"")]
+            (log/debugf "resolve-field result: %s" result)
+            result))))
     (do
       (log/errorf "Invalid field clause structure: %s" field-clause)
       (throw (ex-info "Invalid field clause structure" {:field-clause field-clause})))))
 
 (defn- resolve-value [value-struct]
   (log/debugf "resolve-value called with value-struct: %s (type: %s)" value-struct (type value-struct))
-  (let [[_ value _] value-struct
-        result (str "'" value "'")]
+  (let [[_ value metadata] value-struct
+        base-type (:base_type metadata)
+        result (cond
+                ;; Handle NULL values for all data types
+                (nil? value) "NULL"
+                ;; Numeric types should not be quoted in SQL to avoid type conversion errors
+                ;; This fixes issues where Pinot was trying to parse quoted numbers as strings
+                (or (= base-type :type/Integer) 
+                    (= base-type :type/BigInteger)
+                    (= base-type :type/Float)
+                    (= base-type :type/Decimal))
+                (str value)
+                ;; All other types (dates, times, strings, etc.) should be quoted
+                ;; This ensures proper SQL syntax for non-numeric comparisons
+                :else
+                (str "'" value "'"))]
     (log/debugf "resolve-value result: %s" result)
     result))
 
@@ -127,16 +157,19 @@
 (defn- handle-source-table
   [{source-table-id :source-table, source-query :source-query} pinot-query]
   (let [source-table-name (cond
-                           source-table-id
-                           (let [{table-name :name} (lib.metadata/table (qp.store/metadata-provider) source-table-id)]
-                             table-name)
-                           
-                           source-query
-                           (let [native-query (:native source-query)]
-                             (when native-query
-                               (let [from-match (re-find #"FROM\s+(\w+)" native-query)]
-                                 (when from-match
-                                   (second from-match))))))]
+                          ;; Direct table reference from Metabase's internal table ID
+                          source-table-id
+                          (let [{table-name :name} (lib.metadata/table (qp.store/metadata-provider) source-table-id)]
+                            table-name)
+                          
+                          ;; Extract table name from native SQL when using dropdown variables from other questions
+                          ;; This is essential for making dropdown variables work with source queries
+                          source-query
+                          (let [native-query (:native source-query)]
+                            (when native-query
+                              (let [from-match (re-find #"FROM\s+(\w+)" native-query)]
+                                (when from-match
+                                  (second from-match))))))]
     (if source-table-name
       (assoc-in pinot-query [:query :dataSource] source-table-name)
       pinot-query)))
@@ -177,7 +210,19 @@
                            (str (resolve-field field) " >= " (resolve-value value)))
                     :!= (let [[field value] args]
                            (log/debugf "Processing not equal filter - field: %s, value: %s" field value)
-                           (str (resolve-field field) " != " (resolve-value value)))
+                           (let [resolved-value (resolve-value value)]
+                             (if (= resolved-value "NULL")
+                               ;; Pinot doesn't support != NULL, use IS NOT NULL instead
+                               (str (resolve-field field) " IS NOT NULL")
+                               (str (resolve-field field) " != " resolved-value))))
+                    ;; Handle contains filter for search box functionality
+                    ;; This enables partial string matching with LIKE operator and wildcards
+                    :contains (let [[field value] args]
+                                (log/debugf "Processing contains filter - field: %s, value: %s" field value)
+                                (let [search-term (second value)
+                                      like-pattern (str "'%" search-term "%'")]
+                                  (log/debugf "Contains filter - search-term: %s, like-pattern: %s" search-term like-pattern)
+                                  (str (resolve-field field) " LIKE " like-pattern)))
                     (do
                       (log/errorf "Unsupported filter operation: %s" op)
                       (throw (ex-info "Unsupported filter operation" {:filter filter})))))
