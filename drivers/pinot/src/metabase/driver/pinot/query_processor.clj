@@ -68,6 +68,11 @@
                          (log/debugf "Resolved field ID %s to name: %s" field-id resolved-name)
                          resolved-name)
 
+                       (string? field-id)
+                       (do
+                         (log/debugf "Using field name directly: %s" field-id)
+                         field-id)
+
                        (map? options)
                        (let [resolved-name (:name options)]
                          (log/debugf "Resolved field from options: %s" resolved-name)
@@ -120,9 +125,21 @@
 ;;; ---------------------------------------------- handle-source-table -----------------------------------------------
 
 (defn- handle-source-table
-  [{source-table-id :source-table} pinot-query]
-  (let [{source-table-name :name} (lib.metadata/table (qp.store/metadata-provider) source-table-id)]
-    (assoc-in pinot-query [:query :dataSource] source-table-name)))
+  [{source-table-id :source-table, source-query :source-query} pinot-query]
+  (let [source-table-name (cond
+                           source-table-id
+                           (let [{table-name :name} (lib.metadata/table (qp.store/metadata-provider) source-table-id)]
+                             table-name)
+                           
+                           source-query
+                           (let [native-query (:native source-query)]
+                             (when native-query
+                               (let [from-match (re-find #"FROM\s+(\w+)" native-query)]
+                                 (when from-match
+                                   (second from-match))))))]
+    (if source-table-name
+      (assoc-in pinot-query [:query :dataSource] source-table-name)
+      pinot-query)))
 
 ;;; ---------------------- handle-filter. See http://pinot.io/docs/latest/querying/filters.html ----------------------
 (defn- handle-filter
