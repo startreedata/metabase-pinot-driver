@@ -90,7 +90,9 @@
       (throw (ex-info "No values selected for parameter. Please select at least one value."
                       {:type :metabase.driver/parameter-no-values})))
     
-    ;; Handle arrays - extract the first value if it's a single-element array
+    ;; Handle single-element arrays - return just the value without parentheses
+    ;; This allows single values to work with both = and IN operators
+    ;; Example: [19393] -> "19393" (can be used in "WHERE id = 19393" or "WHERE id IN (19393)")
     (and (sequential? param-value) (= 1 (count param-value)))
     (let [first-value (first param-value)]
       (log/debugf "Handling single-element array: %s" first-value)
@@ -104,7 +106,9 @@
         :else
         (str "'" (str first-value) "'")))
     
-    ;; Handle multi-element arrays - create IN clause
+    ;; Handle multi-element arrays - wrap values in parentheses for IN clause
+    ;; Multiple values must be wrapped in parentheses for SQL IN operator
+    ;; Example: [19393, 19690] -> "(19393, 19690)" (for "WHERE id IN (19393, 19690)")
     (and (sequential? param-value) (> (count param-value) 1))
     (let [values (map (fn [v]
                         (cond
@@ -337,12 +341,61 @@
                            :parameter-key k})))
         
         :else
-        (let [substituted-value (substitute-param-value v)]
-          (log/debugf "Substituted value for key %s: %s" k substituted-value)
+        (let [v-type (type v)
+              v-class (class v)
+              is-sequential? (sequential? v)
+              is-vector? (vector? v)
+              is-list? (list? v)
+              is-coll? (coll? v)
+              _ (log/debugf "Parameter value type check for key %s: v=%s, type=%s, class=%s, sequential?=%s, vector?=%s, list?=%s, coll?=%s" 
+                           k (u/pprint-to-str v) v-type v-class is-sequential? is-vector? is-list? is-coll?)
+              substituted-value (substitute-param-value v)
+              is-array? (sequential? v)
+              array-count (if is-array? (count v) 0)
+              is-single-value? (or (not is-array?) (= 1 array-count))
+              _ (log/debugf "Array detection for key %s: is-array?=%s, array-count=%s, is-single-value?=%s" k is-array? array-count is-single-value?)
+              ;; Check if SQL template has = operator before the parameter
+              ;; Regex pattern breakdown: #"=\s*$"
+              ;;   =     - matches literal equals sign
+              ;;   \s*   - matches zero or more whitespace characters (spaces, tabs, newlines)
+              ;;   $     - matches the end of the string
+              ;; This detects if SQL ends with "=" (optionally followed by whitespace)
+              ;; Example matches: "WHERE id =", "WHERE id = ", "WHERE id =\n"
+              ;; Example non-matches: "WHERE id IN", "WHERE id", "WHERE id = 1"
+              has-equals-before-param? (re-find #"=\s*$" sql)
+              ;; Debug: Log the condition components
+              _ (log/debugf "Parameter substitution debug for key %s: is-single-value=%s, has-equals=%s, sql-ending='%s'" 
+                           k is-single-value? has-equals-before-param? 
+                           (if (> (count sql) 20) (subs sql (- (count sql) 20)) sql))
+              ;; For single values: if = operator, return value without parentheses; if IN, wrap in parentheses
+              ;; For multiple values: always wrap in parentheses (already done by substitute-param-value)
+              ;; Condition: single value AND no = operator (meaning IN operator) -> wrap in parentheses
+              ;; Single values can be any type: Integer (19393), String ("Alabama"), Date ("2023-10-29"), etc.
+              condition-result (and is-single-value? (not has-equals-before-param?))
+              _ (log/debugf "Condition check: (and is-single-value? (not has-equals-before-param?)) = %s" condition-result)
+              final-value (if condition-result
+                            ;; Single value with IN operator - wrap in parentheses
+                            ;; Handles any data type: Integer (19393), String ("Alabama"), Date ("2023-10-29"), etc.
+                            ;; Also handles single-element arrays: [19393], ["Alabama"], etc.
+                            ;; Example: "WHERE id IN {{param}}" with 19393 -> "WHERE id IN (19393)"
+                            ;; Example: "WHERE state IN {{param}}" with "Alabama" -> "WHERE state IN ('Alabama')"
+                            ;; Example: "WHERE date IN {{param}}" with "2023-10-29" -> "WHERE date IN ('2023-10-29')"
+                            (let [wrapped-value (str "(" substituted-value ")")]
+                              (log/debugf "Wrapping single value in parentheses: %s -> %s" substituted-value wrapped-value)
+                              wrapped-value)
+                            ;; Single value with = operator or multiple values - use as-is
+                            ;; Example: "WHERE id = {{param}}" with 19393 -> "WHERE id = 19393"
+                            ;; Example: "WHERE state = {{param}}" with "Alabama" -> "WHERE state = 'Alabama'"
+                            (do
+                              (log/debugf "Using substituted value as-is (no wrapping): %s" substituted-value)
+                              substituted-value))
+              final-sql (str sql final-value)]
+          (log/debugf "Substituted value for key %s: %s (has-equals=%s), final-value=%s, final-sql: %s" 
+                     k substituted-value has-equals-before-param? final-value final-sql)
           (if (empty? substituted-value)
             ;; If substituted value is empty, don't add anything to SQL
             [sql args missing]
-            [(str sql substituted-value) args missing]))))))
+            [final-sql args missing]))))))
 
 (declare substitute*)
 

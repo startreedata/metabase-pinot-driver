@@ -14,6 +14,7 @@
 (ns metabase.driver.pinot.execute
   (:require
    [cheshire.core :as json]
+   [clojure.string :as str]  ; Used for joining error messages from multiple Pinot exceptions
    [metabase.lib.metadata :as lib.metadata]
    [metabase.query-processor.error-type :as qp.error-type]
    [metabase.query-processor.middleware.annotate :as annotate]
@@ -137,7 +138,22 @@
                        query))
         results    (try
                      (log/debugf "*** PINOT EXECUTE: Executing query with details: %s" (u/pprint-to-str details))
-                     (execute* details query)
+                     (let [response (execute* details query)]
+                       ;; Check for exceptions in Pinot response
+                       ;; Pinot returns query errors in the :exceptions field of the response
+                       ;; These need to be extracted and thrown as proper exceptions so Metabase UI can display them
+                       ;; Example: SQL parsing errors, unsupported function errors, etc.
+                       (if-let [exceptions (seq (:exceptions response))]
+                         (let [error-messages (mapv :message exceptions)
+                               combined-message (str/join "; " error-messages)]
+                           (log/errorf "Pinot query returned exceptions: %s" (u/pprint-to-str exceptions))
+                           ;; Throw exception with :db error type so Metabase UI displays it as a database error
+                           ;; This ensures users see Pinot's error messages in the Metabase interface
+                           (throw (ex-info (tru "Pinot query error: {0}" combined-message)
+                                           {:type       qp.error-type/db
+                                            :query      query
+                                            :exceptions exceptions})))
+                         response))
                      (catch Throwable e
                        (log/errorf e "Error executing query: %s" (ex-message e))
                        (throw (ex-info (tru "Error executing query: {0}" (ex-message e))
