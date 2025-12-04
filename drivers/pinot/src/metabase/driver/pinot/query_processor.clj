@@ -74,9 +74,11 @@
       (str "\"" field-name "\""))
     (throw (ex-info "Invalid field clause structure" {:field-clause field-clause}))))
 
-(defn- resolve-value [value-struct]
-  (let [[_ value _] value-struct]
-    (str "'" value "'")))
+(defn- resolve-value
+  "Convert a filter value into the Pinot-ready representation. Delegates to `->rvalue` so we correctly handle
+   strings, numbers, datetimes, and wrapped MBQL value clauses."
+  [value-struct]
+  (->rvalue value-struct))
 
 (defmethod ->rvalue :field
   [[_ id-or-name]]

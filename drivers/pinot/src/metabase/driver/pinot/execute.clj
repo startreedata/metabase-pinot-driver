@@ -98,15 +98,14 @@
 
 (defn- reduce-results
   [{{:keys [mbql?]} :native, :as outer-query} {:keys [projections], :as result} respond]
-  (let [col-names (if mbql?
-                    (->> projections
+  (let [columns (or (not-empty projections)
+                    (some-> result :results first keys not-empty))
+        col-names (if mbql?
+                    (->> columns
                          remove-bonus-keys
                          vec)
-                    (let [first-result (first (:results result))]
-                        (if (map? first-result) ;; Check if first result is a map
-                          ;; Keep column names as strings for native queries since Pinot row data uses string keys
-                          (vec (keys first-result))
-                          (throw (ex-info "Expected the first result to be a map" {:first-result first-result})))))
+                    ;; Keep column names as strings for native queries since Pinot row data uses string keys
+                    (vec columns))
         metadata (result-metadata col-names)
         annotate-col-names (->> (annotate/merged-column-info outer-query metadata)
                                 (map (comp keyword :name)))
@@ -115,7 +114,7 @@
         updated-metadata (update metadata :cols (fn [cols]
                                                   (map (fn [col base-type]
                                                          (assoc col :base_type base-type))
-                                                       cols base-types)))]
+                                                      cols base-types)))]
     (log/debug "Responding with metadata and rows:" updated-metadata rows) ; Log for debugging
     (respond updated-metadata rows))) ; Pass metadata and rows directly in a single map
 

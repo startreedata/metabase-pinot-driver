@@ -14,21 +14,29 @@
 (ns metabase.driver.pinot
   "Pinot driver."
   (:require
+   [clojure.set :as set]
+   [clojure.string :as str]
    [cheshire.core :as json]
    [clj-http.client :as http]
    [metabase.driver :as driver]
+   [metabase.driver.common.parameters.parse :as params.parse]
+   [metabase.driver.common.parameters.values :as params.values]
    [metabase.driver.pinot.client :as pinot.client]
    [metabase.driver.pinot.execute :as pinot.execute]
    [metabase.driver.pinot.query-processor :as pinot.qp]
    [metabase.driver.pinot.sync :as pinot.sync]
-   [metabase.util.log :as log]
-   [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh]))
+   [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh]
+   [metabase.driver.sql.parameters.substitute :as sql.params.substitute]
+   [metabase.driver.sql.parameters.substitution :as sql.params.substitution]
+   [metabase.util.date-2 :as u.date]
+   [metabase.util.log :as log]))
 
 (driver/register! :pinot)
 
 (doseq [[feature supported?] {:expression-aggregations        true
                               :schemas                        false
                               :set-timezone                   true
+                              :native-parameters              true
                               :temporal/requires-default-unit true}]
   (defmethod driver/database-supports? [:pinot feature] [_driver _feature _db] supported?))
 
@@ -61,6 +69,52 @@
 (defmethod driver/mbql->native :pinot
   [_ query]
   (pinot.qp/mbql->native query))
+
+(defn- pinot-literal
+  "Inline a parameter value directly into a Pinot SQL string."
+  [v]
+  (cond
+    (nil? v) "NULL"
+    (string? v) (str "'" (str/replace v #"'" "''") "'")
+    (instance? java.util.UUID v) (str "'" v "'")
+    (instance? java.time.temporal.Temporal v) (str "'" (u.date/format v) "'")
+    (instance? java.util.Date v) (str "'" (u.date/format v) "'")
+    (boolean? v) (if v "TRUE" "FALSE")
+    :else (str v)))
+
+(defn- inline-params
+  "Replace JDBC-style `?` placeholders in `sql` with literal values from `params` in order."
+  [sql params]
+  (reduce (fn [s param]
+            (if (str/includes? s "?")
+              (str/replace-first s "?" (pinot-literal param))
+              s))
+          sql
+          (or params [])))
+
+(defmethod sql.params.substitution/->replacement-snippet-info [:pinot nil]
+  [_driver value]
+  (sql.params.substitution/->replacement-snippet-info :sql value))
+
+(defmethod sql.params.substitution/->replacement-snippet-info [:pinot Object]
+  [_driver value]
+  (sql.params.substitution/->replacement-snippet-info :sql value))
+
+(defmethod driver/substitute-native-parameters :pinot
+  [_ {:keys [query] :as inner-query}]
+  ;; Reuse Metabase's SQL parameter parser, then inline params because Pinot's HTTP API doesn't support prepared
+  ;; statement args.
+  (let [params-map          (params.values/query->params-map inner-query)
+        referenced-card-ids (params.values/referenced-card-ids params-map)
+        [sql params]        (-> query
+                                params.parse/parse
+                                (sql.params.substitute/substitute params-map))
+        sql                 (inline-params sql params)]
+    (cond-> (assoc inner-query
+                   :query  sql
+                   :params params)
+      (seq referenced-card-ids)
+      (update :query-permissions/referenced-card-ids set/union referenced-card-ids))))
 
 (defn- truncate-for-logging
   "Safely truncate query content for logging to avoid exposing sensitive data and reduce log verbosity."
