@@ -19,6 +19,8 @@
    [clojure.test :refer [deftest is testing]]
    [metabase.driver :as driver]
    [metabase.driver.pinot :as pinot]
+   [metabase.driver.pinot.query-processor :as pinot.qp]
+   [metabase.driver.pinot.sync :as pinot.sync]
    [metabase.driver.util :as driver.util]
    [metabase.driver.common.parameters.parse :as params.parse]
    [metabase.driver.common.parameters.values :as params.values]
@@ -121,6 +123,10 @@
     (is (= "'O''Reilly'" (#'pinot/pinot-literal "O'Reilly")))
     (is (= "TRUE" (#'pinot/pinot-literal true)))
     (is (= "5" (#'pinot/pinot-literal 5)))
+    (is (= "'123e4567-e89b-12d3-a456-426614174000'"
+           (#'pinot/pinot-literal (java.util.UUID/fromString "123e4567-e89b-12d3-a456-426614174000"))))
+    (is (re-find #"1970"
+                 (#'pinot/pinot-literal (java.util.Date. 0))))
     (is (str/includes? (#'pinot/pinot-literal (java.time.LocalDate/of 2024 1 1)) "2024"))
     (is (str/includes? (#'pinot/pinot-literal (java.time.Instant/parse "2024-01-01T00:00:00Z")) "2024")))
 
@@ -132,10 +138,36 @@
     (is (= "select * from t where id = 10 and name = 'foo'"
            (#'pinot/inline-params "select * from t where id = ? and name = ?" [10 "foo"])))
     (is (= "select * from t where deleted = NULL"
-           (#'pinot/inline-params "select * from t where deleted = ?" [nil])))))
+           (#'pinot/inline-params "select * from t where deleted = ?" [nil])))
+    (is (= "select 1"
+           (#'pinot/inline-params "select 1" [42])))
+    (is (= "select ?"
+           (#'pinot/inline-params "select ?" nil)))))
 
 (deftest replacement-snippet-info-uses-sql-impl
   (is (= (sql.params.substitution/->replacement-snippet-info :sql nil)
          (sql.params.substitution/->replacement-snippet-info :pinot nil)))
   (is (= (sql.params.substitution/->replacement-snippet-info :sql "abc")
          (sql.params.substitution/->replacement-snippet-info :pinot "abc"))))
+
+(deftest driver-defmethods-delegate-to-implementations
+  (testing "driver multimethods forward to sync/query processor implementations"
+    (let [calls (atom [])]
+      (with-redefs [pinot.sync/describe-table (fn [& args]
+                                                (swap! calls conj [:describe-table args])
+                                                :table)
+                    pinot.sync/describe-database (fn [& args]
+                                                   (swap! calls conj [:describe-database args])
+                                                   :database)
+                    pinot.sync/dbms-version (fn [& args]
+                                              (swap! calls conj [:dbms-version args])
+                                              :version)
+                    pinot.qp/mbql->native (fn [& args]
+                                            (swap! calls conj [:mbql->native args])
+                                            :native)]
+        (is (= :table (driver/describe-table :pinot {:details {}} {:name "users"})))
+        (is (= :database (driver/describe-database :pinot {:details {}})))
+        (is (= :version (driver/dbms-version :pinot {:details {}})))
+        (is (= :native (driver/mbql->native :pinot {:query {:source-table 1}})))
+        (is (= #{:describe-table :describe-database :dbms-version :mbql->native}
+               (set (map first @calls))))))))
