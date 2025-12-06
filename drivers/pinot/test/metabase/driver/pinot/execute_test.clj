@@ -33,6 +33,13 @@
          (#'execute/post-process {:resultTable {:dataSchema {:columnNames nil}
                                                 :rows nil}}))))
 
+(deftest post-process-wraps-mapping-errors
+  (with-redefs [clojure.core/zipmap (fn [& _] (throw (RuntimeException. "zip-fail")))]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Error processing Pinot query results"
+                          (#'execute/post-process {:resultTable {:dataSchema {:columnNames ["c"]}
+                                                                 :rows [[1]]}})))))
+
 (defn fake-base-type-inferer [_metadata]
   (fn
     ([] [])
@@ -67,6 +74,11 @@
                                       ["count" "missing"]
                                       [:count :missing]))))
 
+(deftest result-rows-require-column-names
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                        #"No valid column names provided"
+                        (#'execute/result-rows {:results []} nil nil))))
+
 (deftest result-metadata-normalizes-count-columns
   (is (= [{:name "count" :base_type :type/*}]
          (:cols (#'execute/result-metadata [:distinct___count])))))
@@ -97,6 +109,29 @@
                   (fn [_ _] (throw (RuntimeException. "boom")))
                   {:native {:query {:sql "SELECT 1"}}}
                   (fn [_ _]))))))
+
+(deftest execute-reducible-query-wraps-post-process-errors
+  (with-redefs [qp.store/metadata-provider (constantly {:details {}})
+                lib.metadata/database (fn [provider] provider)
+                execute/post-process (fn [_] (throw (RuntimeException. "post-fail")))]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Error post-processing Pinot query results"
+                          (execute/execute-reducible-query
+                           (fn [_ _] {:resultTable {}})
+                           {:native {:query {:sql "SELECT 1"}}}
+                           (fn [_ _]))))))
+
+(deftest execute-reducible-query-wraps-reduce-errors
+  (with-redefs [qp.store/metadata-provider (constantly {:details {}})
+                lib.metadata/database (fn [provider] provider)
+                execute/post-process identity
+                execute/reduce-results (fn [& _] (throw (RuntimeException. "reduce-fail")))]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Error reducing Pinot query results"
+                          (execute/execute-reducible-query
+                           (fn [_ _] {:native {:query {}}})
+                           {:native {:query {:sql "SELECT 1"}}}
+                           (fn [_ _]))))))
 
 (deftest reduce-results-handles-native-queries
   (let [captured (atom nil)]

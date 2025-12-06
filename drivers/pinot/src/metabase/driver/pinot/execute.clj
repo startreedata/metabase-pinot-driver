@@ -32,7 +32,7 @@
     (if (and column-names rows)
       (try
         (let [processed-results {:projections column-names  ;; Use inferred projections from the schema
-                                  :results     (map (fn [row]
+                                  :results     (mapv (fn [row]
                                                       (zipmap column-names row)) ;; Map column names to each row's values
                                                     rows)}]
           processed-results)

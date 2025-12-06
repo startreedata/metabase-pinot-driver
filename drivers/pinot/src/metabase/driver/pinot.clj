@@ -78,7 +78,7 @@
     (string? v) (str "'" (str/replace v #"'" "''") "'")
     (instance? java.util.UUID v) (str "'" v "'")
     (instance? java.time.temporal.Temporal v) (str "'" (u.date/format v) "'")
-    (instance? java.util.Date v) (str "'" (u.date/format v) "'")
+    (instance? java.util.Date v) (str "'" (u.date/format (.toInstant ^java.util.Date v)) "'")
     (boolean? v) (if v "TRUE" "FALSE")
     :else (str v)))
 

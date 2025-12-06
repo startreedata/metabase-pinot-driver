@@ -23,6 +23,9 @@
   (is (= "http://localhost:9000/health"
          (client/details->url {:controller-endpoint "http://localhost:9000"} "/health"))))
 
+(deftest parse-value-handles-nil
+  (is (nil? (client/parse-value nil))))
+
 (deftest query-options-parsing-and-mapping-test
   (testing "round trip between string and map query option formats"
     (let [options-str "timeoutMs=1000;useMultistageEngine=true;threshold=0.5"
@@ -99,7 +102,27 @@
                           #"Pinot request error"
                           (#'client/do-request
                            (fn [_ _] {:status 500 :body "{}"})
-                           "http://pinot:9000/error")))))
+                           "http://pinot:9000/error"))))
+
+  (testing "malformed JSON responses surface parsing errors"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Failed to parse Pinot response body"
+                          (#'client/do-request
+                           (fn [_ _] {:status 200 :body "{not-json}"})
+                           "http://pinot:9000/bad-json"))))
+
+  (testing "exceptions include parsed response bodies"
+    (try
+      (#'client/do-request
+       (fn [_ _]
+         (throw (ex-info "boom" {:body "{\"errorMessage\":\"bad\"}"})))
+       "http://pinot:9000/broken")
+      (catch clojure.lang.ExceptionInfo e
+        (let [data (ex-data e)]
+          (is (= "bad" (.getMessage e)))
+          (is (= {:errorMessage "bad"} (:response data)))
+          (is (= "http://pinot:9000/broken" (:request-url data)))
+          (is (:request-options data)))))))
 
 (deftest cancel-query-with-id!-test
   (testing "missing query-id is a no-op"
