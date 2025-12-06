@@ -169,9 +169,11 @@ jobs:
             const percent = computePercent(coverage);
             const coveragePercent = percent !== null ? percent.toFixed(2) : 'N/A';
             
+            const codecovUrl = `https://app.codecov.io/gh/${context.repo.owner}/${context.repo.repo}/commit/${context.sha}?flags=pinot-driver`;
             const body = `## 📊 Test Coverage Report
             
             **Pinot Driver Coverage**: ${coveragePercent}%
+            **Codecov**: ${codecovUrl}
             
             Coverage details have been uploaded to the artifacts for this build.
             `;
