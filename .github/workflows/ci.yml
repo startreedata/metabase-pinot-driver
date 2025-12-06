@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true) }}
     
     steps:
     - name: Checkout code
@@ -89,26 +90,103 @@ jobs:
         # The :dev alias includes core source paths needed for metabase.util.ssh
         clojure -X:dev:build:drivers:build/driver :driver :pinot :edition :oss
 
-    - name: Run tests
+    - name: Run tests with coverage
       run: |
-        cd metabase
-        export DRIVERS=pinot
-        export MB_PINOT_TEST_PORT=9000
-        # Use the correct test command for Metabase
-        clojure -M:dev:drivers:drivers-dev:test
+        echo "=== Running Pinot driver tests with coverage ==="
+        cd drivers/pinot
+        
+        # Run unit tests with coverage
+        echo "Running unit tests with coverage..."
+        clojure -X:test-coverage
+        
+        # Generate coverage report
+        echo "Generating coverage reports..."
+        
+        # Also run using kaocha for better test reporting
+        echo "Running tests with kaocha..."
+        clojure -M:test-runner --config-file tests.edn --reporter kaocha.report/documentation
+        
+        echo "=== Test execution completed ==="
 
-    - name: Upload test results
+    - name: Upload test results and coverage
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: test-results
+        name: test-results-and-coverage
         path: |
+          drivers/pinot/target/coverage/
+          drivers/pinot/target/test-results/
           metabase/test-results/
           metabase/coverage/
-        retention-days: 7
+        retention-days: 30
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      if: always()
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: drivers/pinot/target/coverage/codecov.json
+        directory: drivers/pinot/target/coverage/
+        flags: pinot-driver
+        name: pinot-driver-coverage
+        fail_ci_if_error: false
+        verbose: true
+
+    - name: Comment coverage report
+      uses: actions/github-script@v7
+      if: github.event_name == 'pull_request' && always()
+      with:
+        script: |
+          const fs = require('fs');
+          const path = 'drivers/pinot/target/coverage/codecov.json';
+          
+          if (fs.existsSync(path)) {
+            const coverage = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const computePercent = (data) => {
+              if (typeof data === 'number') return data;
+              if (!data || typeof data.coverage !== 'object') return null;
+              
+              let covered = 0;
+              let total = 0;
+              
+              for (const fileCoverage of Object.values(data.coverage)) {
+                if (!fileCoverage) continue;
+                const entries = Array.isArray(fileCoverage) ? fileCoverage : Object.values(fileCoverage);
+                
+                for (const v of entries) {
+                  if (v === null || v === undefined) continue;
+                  total += 1;
+                  const hits = v === true ? 1 : v;
+                  if (typeof hits === 'number' && hits > 0) {
+                    covered += 1;
+                  }
+                }
+              }
+              
+              return total ? (covered / total * 100) : null;
+            };
+            
+            const percent = computePercent(coverage);
+            const coveragePercent = percent !== null ? percent.toFixed(2) : 'N/A';
+            
+            const body = `## 📊 Test Coverage Report
+            
+            **Pinot Driver Coverage**: ${coveragePercent}%
+            
+            Coverage details have been uploaded to the artifacts for this build.
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+          }
 
   lint:
     runs-on: ubuntu-latest
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true) }}
     
     steps:
     - name: Checkout code
@@ -137,6 +215,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true) }}
     
     steps:
     - name: Checkout repository
@@ -236,6 +315,8 @@ jobs:
       run: clojure verify_driver.clj
 
   security:
+    # Secrets are not available for PRs from forks; only run when secrets can be read.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     runs-on: ubuntu-latest
     
     steps:
@@ -259,6 +340,8 @@ jobs:
           ${{ runner.os }}-clojure-
 
     - name: Run security scan
+      env:
+        NVD_API_TOKEN: ${{ secrets.NVD_API_KEY }}
       run: |
         cd drivers/pinot
-        clojure -M:security-scan 
+        clojure -J-Dnvd.api.key="$NVD_API_TOKEN" -M:security-scan nvd-clojure.edn $(clojure -Spath -M:security-scan-cp)

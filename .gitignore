@@ -18,6 +18,8 @@ yarn-error.log*
 
 # Metabase
 metabase/
+!drivers/pinot/test/metabase/
+!drivers/pinot/test/metabase/**
 .metabase/
 
 # IDE
