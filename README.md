@@ -1,4 +1,8 @@
 # metabase-pinot-driver
+[![CI](https://github.com/startreedata/metabase-pinot-driver/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/startreedata/metabase-pinot-driver/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/startreedata/metabase-pinot-driver/branch/main/graph/badge.svg)](https://codecov.io/gh/startreedata/metabase-pinot-driver)
+[![License](https://img.shields.io/github/license/startreedata/metabase-pinot-driver)](LICENSE)
+
 Apache Pinot driver for the Metabase business intelligence front-end
 
 ## Overview
