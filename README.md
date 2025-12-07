@@ -9,6 +9,9 @@ Apache Pinot driver for the Metabase business intelligence front-end
 
 This repository contains the Apache Pinot driver for Metabase, allowing you to connect Metabase to Apache Pinot databases for data analysis and visualization.
 
+[Integrate Apache Pinot with Metabase](https://docs.pinot.apache.org/integrations/metabase)
+
+
 ## Features
 
 - Connect to Apache Pinot databases via HTTP API
@@ -34,7 +37,7 @@ This repository contains the Apache Pinot driver for Metabase, allowing you to c
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/your-username/metabase-pinot-driver.git
+   git clone https://github.com/startreedata/metabase-pinot-driver.git
    cd metabase-pinot-driver
    ```
 
@@ -123,7 +126,7 @@ This project uses GitHub Actions for automated releases. There are two ways to c
 
 #### 1. Using GitHub Actions (Recommended)
 
-1. Go to the [Actions tab](https://github.com/your-username/metabase-pinot-driver/actions)
+1. Go to the [Actions tab](https://github.com/startreedata/metabase-pinot-driver/actions)
 2. Select the "Release" workflow
 3. Click "Run workflow"
 4. Fill in the required parameters:
@@ -168,7 +171,7 @@ Each release includes:
 
 ### Installing a Release
 
-1. Download the driver JAR from the [releases page](https://github.com/your-username/metabase-pinot-driver/releases)
+1. Download the driver JAR from the [releases page](https://github.com/startreedata/metabase-pinot-driver/releases)
 2. Place it in your Metabase `plugins` directory
 3. Restart Metabase
 4. The Pinot driver will be available for database connections
@@ -189,7 +192,7 @@ This project is licensed under the Apache License, Version 2.0. See the [LICENSE
 
 For issues and questions:
 - Create an issue on GitHub
-- Check the [Apache Pinot documentation](https://pinot.apache.org/docs)
+- Check the [Apache Pinot documentation](https://docs.pinot.apache.org/integrations/metabase)
 - Check the [Metabase documentation](https://www.metabase.com/docs)
 
 ## Related Links
