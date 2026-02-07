@@ -118,6 +118,26 @@ This will:
 2. Link the driver to Metabase
 3. Run the test suite
 
+### Manual Testing Notes (Variable Substitution)
+
+The following behaviors were manually verified for **variable substitution** (SQL parameters: https://www.metabase.com/docs/latest/questions/native-editor/sql-parameters) in Metabase with the Pinot driver:
+
+| Variable type | Filter widget | Result | Notes |
+| --- | --- | --- | --- |
+| Number | Dropdown list (custom or from another model/question) | Pass | |
+| Number | Search box (custom only) | Pass | Multiple selections are allowed. Use `IN` for multi-select; `=` only works for a single value. `IN` works for both single and multiple values. |
+| Number | Input box | Pass | |
+| Text | Input box | Pass | |
+| Text | Search box (custom or from another model/question) | Pass | |
+| Text | Dropdown list (custom or from another model/question) | Pass | |
+| Date | Input box (only option available) | Pass | |
+| Field Filter | Location is (=`=` or `IN` for multiple values) | Pass | Do not include the column name in SQL. Map the variable to a field in the side panel. Example: `SELECT count(*) FROM products WHERE 1=1 [[AND {{category}}]]` |
+| Field Filter | Location is not (`!=` or `NOT IN` for multiple values) | Pass | |
+| Field Filter | Location contains (`LIKE %val%`) | Pass | For multiple values, use `LIKE` with `OR` across values. |
+| Field Filter | Location does not contain (`NOT LIKE %val%`) | Pass | For multiple values, use `NOT LIKE` with `OR` across values. |
+| Field Filter | Location starts with (`LIKE val%`) | Pass | For multiple values, use `LIKE` with `OR` across values. |
+| Field Filter | Location ends with (`LIKE %val`) | Pass | For multiple values, use `LIKE` with `OR` across values. |
+
 ## Releases
 
 ### Creating a Release

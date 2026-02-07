@@ -9,6 +9,7 @@ pom.xml
 pom.xml.asc
 *.jar
 *.class
+custom-log4j2.xml
 
 # Node.js
 node_modules/
@@ -48,6 +49,7 @@ examples/
 .env.development.local
 .env.test.local
 .env.production.local
+.java-version
 
 .clj-kondo/
 .lsp/

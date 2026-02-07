@@ -124,8 +124,7 @@
     query-str))
 
 (defn- add-timeout-to-query [query timeout]
-  (log/debugf "add-timeout-to-query called with query type: %s, timeout: %s" 
-              (type query) timeout)
+  (log/debugf "add-timeout-to-query called with query type: %s, timeout: %s" (type query) timeout)
   (cond
     ;; If it's not a string, assume it's already a map/object
     (not (string? query))
@@ -153,8 +152,7 @@
 
         ;; If it's a raw SQL string, wrap it in proper Pinot query JSON structure
         (do
-          (log/debugf "Query is SQL string, wrapping in JSON structure: %s"
-                      (truncate-for-logging trimmed-query 50))
+          (log/debugf "Query is SQL string, wrapping in JSON structure: %s" (truncate-for-logging trimmed-query 50))
           {:sql query :queryOptions {:timeoutMs timeout}})))))
 
 (defmethod driver/execute-reducible-query :pinot
@@ -168,4 +166,4 @@
 
 (defmethod driver/db-start-of-week :pinot
   [_]
-  :sunday) 
+  :sunday)

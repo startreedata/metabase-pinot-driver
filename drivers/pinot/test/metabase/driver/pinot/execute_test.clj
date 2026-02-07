@@ -13,7 +13,7 @@
 ;;
 (ns metabase.driver.pinot.execute-test
   (:require
-   [clojure.test :refer [deftest is]]
+   [clojure.test :refer [deftest is testing]]
    [metabase.driver.pinot.execute :as execute]
    [metabase.lib.metadata :as lib.metadata]
    [metabase.query-processor.middleware.annotate :as annotate]
@@ -83,6 +83,10 @@
   (is (= [{:name "count" :base_type :type/*}]
          (:cols (#'execute/result-metadata [:distinct___count])))))
 
+(deftest result-metadata-normalizes-timestamp-column
+  (is (= [{:name "timestamp" :base_type :type/*}]
+         (:cols (#'execute/result-metadata [:timestamp___int])))))
+
 (deftest execute-reducible-query-runs-end-to-end
   (let [captured (atom nil)]
     (with-redefs [qp.store/metadata-provider (constantly {:details {}})
@@ -145,3 +149,69 @@
     (is (= [[1] [2]] (:rows @captured)))
     (is (= [{:name "col" :base_type :type/Integer}]
            (get-in @captured [:metadata :cols])))))
+
+(deftest execute-reducible-query-throws-when-pinot-returns-exceptions
+  (testing "When Pinot response contains :exceptions (e.g. SQL parse error), driver throws so Metabase UI can display the error."
+    (with-redefs [qp.store/metadata-provider (constantly {:details {}})
+                lib.metadata/database (fn [provider] provider)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Pinot query error"
+                          (execute/execute-reducible-query
+                           (fn [_ _] {:exceptions [{:message "Unknown column 'foo'"}
+                                                    {:message "Syntax error at line 1"}]})
+                           {:native {:query {:sql "SELECT foo"}}}
+                           (fn [_ _])))))
+  (with-redefs [qp.store/metadata-provider (constantly {:details {}})
+                lib.metadata/database (fn [provider] provider)]
+    (try
+      (execute/execute-reducible-query
+       (fn [_ _] {:exceptions [{:message "Unknown column 'bar'"}]})
+       {:native {:query {:sql "SELECT bar"}}}
+       (fn [_ _]))
+      (is false "expected exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :db (get-in (ex-data e) [:type]))
+            "Pinot errors should have :type :db so Metabase UI shows them as database errors"))))))
+
+(deftest reduce-results-empty-native-uses-projections
+  (testing "When native query has no rows, column names come from schema projections (empty result handling)."
+    (let [captured (atom nil)]
+    (with-redefs [annotate/merged-column-info (fn [_ metadata] (:cols metadata))
+                  annotate/base-type-inferer fake-base-type-inferer]
+      (#'execute/reduce-results
+       {:type :query :native {:mbql? false}}
+       {:projections ["a" "b"] :results []}
+       (fn [metadata rows]
+         (reset! captured {:metadata metadata :rows rows}))))
+    (is (= [] (:rows @captured)))
+    (is (some? (:metadata @captured))))))
+
+(deftest post-process-rows-nil-returns-empty
+  (is (= {:projections nil :results []}
+         (#'execute/post-process {:resultTable {:dataSchema {:columnNames ["a" "b"]}
+                                                 :rows nil}}))))
+
+(deftest reduce-results-mbql-uses-remove-bonus-keys
+  (let [captured (atom nil)]
+    (with-redefs [annotate/merged-column-info (fn [_ metadata] (:cols metadata))
+                  annotate/base-type-inferer fake-base-type-inferer]
+      (#'execute/reduce-results
+       {:native {:mbql? true}}
+       {:projections ["id" "___temp" "name"]
+        :results [{"id" 1 "___temp" 0 "name" "x"}]}
+       (fn [metadata rows]
+         (reset! captured {:metadata metadata :rows rows}))))
+    (is (= ["id" "name"] (mapv :name (get-in @captured [:metadata :cols]))))))
+
+(deftest reduce-results-native-no-projections-empty-results
+  (let [captured (atom nil)]
+    (with-redefs [annotate/merged-column-info (fn [_ metadata] (:cols metadata))
+                  annotate/base-type-inferer fake-base-type-inferer]
+      (#'execute/reduce-results
+       {:native {:mbql? false}}
+       {:projections []
+        :results []}
+       (fn [metadata rows]
+         (reset! captured {:metadata metadata :rows rows}))))
+    (is (= [] (get-in @captured [:metadata :cols])))
+    (is (= [] (:rows @captured)))))

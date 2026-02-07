@@ -14,6 +14,7 @@
 (ns metabase.driver.pinot.execute
   (:require
    [cheshire.core :as json]
+   [clojure.string :as str]  ; Used for joining error messages from multiple Pinot exceptions
    [metabase.lib.metadata :as lib.metadata]
    [metabase.query-processor.error-type :as qp.error-type]
    [metabase.query-processor.middleware.annotate :as annotate]
@@ -96,7 +97,8 @@
   [columns]
   (vec (remove #(re-find #"^___" (name %)) columns)))
 
-(defn- reduce-results
+(defn reduce-results
+  "Reduce query results to metadata and rows. Public for testing (e.g. empty result handling)."
   [{{:keys [mbql?]} :native, :as outer-query} {:keys [projections], :as result} respond]
   (let [columns (or (not-empty projections)
                     (some-> result :results first keys not-empty))
@@ -104,8 +106,14 @@
                     (->> columns
                          remove-bonus-keys
                          vec)
-                    ;; Keep column names as strings for native queries since Pinot row data uses string keys
-                    (vec columns))
+                    (let [first-result (first (:results result))]
+                        (if (and first-result (map? first-result)) ;; Check if first result exists and is a map
+                          ;; Keep column names as strings for native queries since Pinot row data uses string keys
+                          (vec (keys first-result))
+                          ;; If no results or first result is not a map, use projections from the schema
+                          (if (seq projections)
+                            (vec projections)
+                            []))))
         metadata (result-metadata col-names)
         annotate-col-names (->> (annotate/merged-column-info outer-query metadata)
                                 (map (comp keyword :name)))
@@ -122,26 +130,53 @@
   "Execute a query for a Pinot DB."
   [execute* {{:keys [query]} :native :as mbql-query} respond]
   {:pre [query]}
+  (log/debugf "*** PINOT EXECUTE: execute-reducible-query called with mbql-query: %s" (u/pprint-to-str mbql-query))
   (let [details    (:details (lib.metadata/database (qp.store/metadata-provider)))
         query      (if (string? query)
-                     (json/parse-string query keyword)
-                     query)
+                     (do
+                       (log/debugf "*** PINOT EXECUTE: Parsing string query: %s" query)
+                       (json/parse-string query keyword))
+                     (do
+                       (log/debugf "*** PINOT EXECUTE: Query is already parsed: %s" (u/pprint-to-str query))
+                       query))
         results    (try
-                     (execute* details query)
+                     (log/debugf "*** PINOT EXECUTE: Executing query with details: %s" (u/pprint-to-str details))
+                     (let [response (execute* details query)]
+                       ;; Check for exceptions in Pinot response
+                       ;; Pinot returns query errors in the :exceptions field of the response
+                       ;; These need to be extracted and thrown as proper exceptions so Metabase UI can display them
+                       ;; Example: SQL parsing errors, unsupported function errors, etc.
+                       (if-let [exceptions (seq (:exceptions response))]
+                         (let [error-messages (mapv :message exceptions)
+                               combined-message (str/join "; " error-messages)]
+                           (log/errorf "Pinot query returned exceptions: %s" (u/pprint-to-str exceptions))
+                           ;; Throw exception with :db error type so Metabase UI displays it as a database error
+                           ;; This ensures users see Pinot's error messages in the Metabase interface
+                           (throw (ex-info (tru "Pinot query error: {0}" combined-message)
+                                           {:type       qp.error-type/db
+                                            :query      query
+                                            :exceptions exceptions})))
+                         response))
                      (catch Throwable e
+                       (log/errorf e "Error executing query: %s" (ex-message e))
                        (throw (ex-info (tru "Error executing query: {0}" (ex-message e))
                                        {:type  qp.error-type/db
                                         :query query}
                                        e))))
-        result     (try (post-process results)
-                        (catch Throwable e
-                          (throw (ex-info (tru "Error post-processing Pinot query results")
-                                          {:type    qp.error-type/driver
-                                           :results results}
-                                          e))))]
+        result     (try 
+                     (log/debugf "*** PINOT EXECUTE: Post-processing results: %s" (u/pprint-to-str results))
+                     (post-process results)
+                     (catch Throwable e
+                       (log/errorf e "Error post-processing Pinot query results: %s" (ex-message e))
+                       (throw (ex-info (tru "Error post-processing Pinot query results")
+                                       {:type    qp.error-type/driver
+                                        :results results}
+                                       e))))]
+    (log/debugf "*** PINOT EXECUTE: Post-processed result: %s" (u/pprint-to-str result))
     (try
       (reduce-results mbql-query result respond)
       (catch Throwable e
+        (log/errorf e "Error reducing Pinot query results: %s" (ex-message e))
         (throw (ex-info (tru "Error reducing Pinot query results")
                         {:type           qp.error-type/driver
                          :results        results

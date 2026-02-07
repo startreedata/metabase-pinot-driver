@@ -41,7 +41,7 @@
 
 (defmethod ->rvalue nil
   [_]
-  nil)
+  "NULL")
 
 (defmethod ->rvalue Object
   [this]
@@ -57,22 +57,52 @@
 
 (defn- resolve-field
   [field-clause]
-  (log/debugf "Resolving field clause: %s" field-clause)
+  (log/debugf "resolve-field called with field-clause: %s (type: %s)" field-clause (type field-clause))
   (if (and (sequential? field-clause) (>= (count field-clause) 2))
-    (let [[_ field-id options] field-clause
-          field-name (cond
-                       (integer? field-id)
-                       (-> (qp.store/metadata-provider)
-                           (lib.metadata/field field-id)
-                           :name)
+    (let [[op & args] field-clause]
+      (cond
+        ;; Handle function calls like [:lower [:field ...]] for case-insensitive search
+        ;; This is used by search box filters to enable case-insensitive LIKE operations
+        (= op :lower)
+        (let [inner-field (first args)]
+          (log/debugf "Processing lower function on field: %s" inner-field)
+          (str "LOWER(" (resolve-field inner-field) ")"))
+        
+        ;; Handle regular field references
+        :else
+        (let [[_ field-id options] field-clause
+              field-name (cond
+                           ;; Integer field IDs from Metabase's internal field references
+                           (integer? field-id)
+                           (let [resolved-name (-> (qp.store/metadata-provider)
+                                                   (lib.metadata/field field-id)
+                                                   :name)]
+                             (log/debugf "Resolved field ID %s to name: %s" field-id resolved-name)
+                             resolved-name)
 
-                       (map? options)
-                       (:name options)
+                           ;; String field IDs from dropdown variables from other questions
+                           ;; This is crucial for making dropdown variables work correctly
+                           (string? field-id)
+                           (do
+                             (log/debugf "Using field name directly: %s" field-id)
+                             field-id)
 
-                       :else
-                       (str "unknown-field-" field-id))]
-      (str "\"" field-name "\""))
-    (throw (ex-info "Invalid field clause structure" {:field-clause field-clause}))))
+                           ;; Field names from options map (fallback)
+                           (map? options)
+                           (let [resolved-name (:name options)]
+                             (log/debugf "Resolved field from options: %s" resolved-name)
+                             resolved-name)
+
+                           ;; Fallback for unknown field types
+                           :else
+                           (let [resolved-name (str "unknown-field-" field-id)]
+                             (log/debugf "Using fallback field name: %s" resolved-name)
+                             resolved-name))]
+          (log/debugf "resolve-field result: %s" (str "\"" field-name "\""))
+          (str "\"" field-name "\""))))
+    (do
+      (log/errorf "Invalid field clause structure: %s" field-clause)
+      (throw (ex-info "Invalid field clause structure" {:field-clause field-clause})))))
 
 (defn- resolve-value
   "Convert a filter value into the Pinot-ready representation. Delegates to `->rvalue` so we correctly handle
@@ -109,44 +139,87 @@
 ;;; ---------------------------------------------- handle-source-table -----------------------------------------------
 
 (defn- handle-source-table
-  [{source-table-id :source-table} pinot-query]
-  (let [{source-table-name :name} (lib.metadata/table (qp.store/metadata-provider) source-table-id)]
-    (assoc-in pinot-query [:query :dataSource] source-table-name)))
+  [{source-table-id :source-table, source-query :source-query} pinot-query]
+  (let [source-table-name (cond
+                          ;; Direct table reference from Metabase's internal table ID
+                          source-table-id
+                          (let [{table-name :name} (lib.metadata/table (qp.store/metadata-provider) source-table-id)]
+                            table-name)
+                          
+                          ;; Extract table name from native SQL when using dropdown variables from other questions
+                          ;; This is essential for making dropdown variables work with source queries
+                          source-query
+                          (let [native-query (:native source-query)]
+                            (when native-query
+                              (let [from-match (re-find #"FROM\s+(\w+)" native-query)]
+                                (when from-match
+                                  (second from-match))))))]
+    (if source-table-name
+      (assoc-in pinot-query [:query :dataSource] source-table-name)
+      pinot-query)))
 
 ;;; ---------------------- handle-filter. See http://pinot.io/docs/latest/querying/filters.html ----------------------
 (defn- handle-filter
   [original-query pinot-query]
   ;; Extract filters from the original query and add to pinot-query
   (let [filters (:filter original-query)]
+    (log/debugf "handle-filter called with filters: %s" (u/pprint-to-str filters))
     (letfn [(filter-clause [filter]
+              (log/debugf "filter-clause called with filter: %s (type: %s)" filter (type filter))
               (if (vector? filter)
                 (let [[op & args] filter]
                   ;; log op and args
-                  (log/debugf "Processing filter clause: %s, op: %s, args: %s" filter, op, args)
+                  (log/debugf "Processing filter clause: %s, op: %s, args: %s" filter op args)
                   (case op
                     :and (str "(" (str/join " AND " (map filter-clause args)) ")")
                     :or (str "(" (str/join " OR " (map filter-clause args)) ")")
                     :not (str "NOT " (filter-clause (first args)))
                     :between (let [[field lower upper] args]
+                                (log/debugf "Processing between filter - field: %s, lower: %s, upper: %s" field lower upper)
                                 (str (resolve-field field) " BETWEEN " (resolve-value lower) " AND " (resolve-value upper)))
                     := (let [[field value] args]
+                          (log/debugf "Processing equals filter - field: %s, value: %s" field value)
                           (str (resolve-field field) " = " (resolve-value value)))
                     :> (let [[field value] args]
+                          (log/debugf "Processing greater than filter - field: %s, value: %s" field value)
                           (str (resolve-field field) " > " (resolve-value value)))
                     :< (let [[field value] args]
+                          (log/debugf "Processing less than filter - field: %s, value: %s" field value)
                           (str (resolve-field field) " < " (resolve-value value)))
                     :<= (let [[field value] args]
+                           (log/debugf "Processing less than or equal filter - field: %s, value: %s" field value)
                            (str (resolve-field field) " <= " (resolve-value value)))
                     :>= (let [[field value] args]
+                           (log/debugf "Processing greater than or equal filter - field: %s, value: %s" field value)
                            (str (resolve-field field) " >= " (resolve-value value)))
                     :!= (let [[field value] args]
-                           (str (resolve-field field) " != " (resolve-value value)))
-                    (throw (ex-info "Unsupported filter operation" {:filter filter}))))
-                (throw (ex-info "Invalid filter format" {:filter filter}))))]
+                           (log/debugf "Processing not equal filter - field: %s, value: %s" field value)
+                           (let [resolved-value (resolve-value value)]
+                             (if (= resolved-value "NULL")
+                               ;; Pinot doesn't support != NULL, use IS NOT NULL instead
+                               (str (resolve-field field) " IS NOT NULL")
+                               (str (resolve-field field) " != " resolved-value))))
+                    ;; Handle contains filter for search box functionality
+                    ;; This enables partial string matching with LIKE operator and wildcards
+                    :contains (let [[field value] args]
+                                (log/debugf "Processing contains filter - field: %s, value: %s" field value)
+                                (let [search-term (second value)
+                                      like-pattern (str "'%" search-term "%'")]
+                                  (log/debugf "Contains filter - search-term: %s, like-pattern: %s" search-term like-pattern)
+                                  (str (resolve-field field) " LIKE " like-pattern)))
+                    (do
+                      (log/errorf "Unsupported filter operation: %s" op)
+                      (throw (ex-info "Unsupported filter operation" {:filter filter})))))
+                (do
+                  (log/errorf "Invalid filter format: %s" filter)
+                  (throw (ex-info "Invalid filter format" {:filter filter})))))]
       (if filters
         (let [where-clause (filter-clause filters)]
+          (log/debugf "Generated where clause: %s" where-clause)
           (assoc-in pinot-query [:query :where] where-clause))
-        pinot-query))))
+        (do
+          (log/debugf "No filters found")
+          pinot-query)))))
 
 ;;; ----------------------------------------------- handle-aggregation -----------------------------------------------
 (defn- handle-aggregations

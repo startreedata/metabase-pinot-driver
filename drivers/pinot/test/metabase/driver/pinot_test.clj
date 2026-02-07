@@ -53,6 +53,14 @@
                                {:status 200})]
         (is (true? (driver/can-connect? :pinot details)))))
 
+    (testing "connection without auth uses empty headers"
+      (with-redefs [ssh/do-with-ssh-tunnel (fn [config f] (f config))
+                    http/get (fn [_ options]
+                               (is (empty? (:headers options)))
+                               {:status 200})]
+        (is (true? (driver/can-connect? :pinot {:controller-endpoint "http://pinot:9000"
+                                                :auth-enabled false})))))
+
     (testing "non-200 status is treated as a failed connection"
       (with-redefs [ssh/do-with-ssh-tunnel (fn [config f] (f config))
                     http/get (fn [_ _] {:status 500})]
@@ -115,13 +123,28 @@
 
   (testing "JSON query strings are parsed before adding a timeout"
     (is (= {:sql "SELECT 1" :queryOptions {:timeoutMs 5000}}
-           (#'pinot/add-timeout-to-query "{\"sql\":\"SELECT 1\"}" 5000)))))
+           (#'pinot/add-timeout-to-query "{\"sql\":\"SELECT 1\"}" 5000))))
+
+  (testing "Invalid JSON string falls back to SQL wrapper with timeout"
+    (let [result (#'pinot/add-timeout-to-query "not json at all" 5000)]
+      (is (= "not json at all" (:sql result)))
+      (is (= 5000 (get-in result [:queryOptions :timeoutMs])))))
+
+  (testing "JSON string that fails to parse falls back to SQL wrapper"
+    (let [result (#'pinot/add-timeout-to-query "{invalid" 5000)]
+      (is (= "{invalid" (:sql result)))
+      (is (= 5000 (get-in result [:queryOptions :timeoutMs]))))))
+
+(deftest native-parameters-capability-test
+  (testing "Pinot driver declares native SQL parameter support for Metabase native editor"
+    (is (true? (driver/database-supports? :pinot :native-parameters nil)))))
 
 (deftest pinot-literal-and-inline-params-test
   (testing "pinot-literal safely formats values"
     (is (= "NULL" (#'pinot/pinot-literal nil)))
     (is (= "'O''Reilly'" (#'pinot/pinot-literal "O'Reilly")))
     (is (= "TRUE" (#'pinot/pinot-literal true)))
+    (is (= "FALSE" (#'pinot/pinot-literal false)))
     (is (= "5" (#'pinot/pinot-literal 5)))
     (is (= "'123e4567-e89b-12d3-a456-426614174000'"
            (#'pinot/pinot-literal (java.util.UUID/fromString "123e4567-e89b-12d3-a456-426614174000"))))
@@ -171,3 +194,22 @@
         (is (= :native (driver/mbql->native :pinot {:query {:source-table 1}})))
         (is (= #{:describe-table :describe-database :dbms-version :mbql->native}
                (set (map first @calls))))))))
+
+(deftest pinot-driver-empty-results-test
+  (testing "Pinot driver should handle empty result sets without error"
+    (let [empty-result {:projections ["DestStateName" "count(*)"]
+                        :results []}
+          query {:type :query :native {:mbql? false}}
+          ;; Mock the respond function to capture the result
+          captured-result (atom nil)
+          respond-fn (fn [metadata rows]
+                       (reset! captured-result {:metadata metadata :rows rows}))]
+      
+      ;; This should not throw an exception (if it does, the test fails)
+      (metabase.driver.pinot.execute/reduce-results
+       query empty-result respond-fn)
+      
+      ;; Verify the result structure
+      (is (some? @captured-result))
+      (is (= [] (:rows @captured-result)))
+      (is (some? (:metadata @captured-result))))))

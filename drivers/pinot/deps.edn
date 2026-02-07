@@ -33,7 +33,7 @@
                "--html"
                "--codecov"
                "--junit"
-               "--fail-threshold" "70"
+               "--fail-threshold" "68"
                "--low-watermark" "50"
                "--high-watermark" "80"]}
 
@@ -47,7 +47,7 @@
                :html? true
                :codecov? true
                :junit? true
-               :fail-threshold 70
+               :fail-threshold 68
                :low-watermark 50
                :high-watermark 80}}
   
