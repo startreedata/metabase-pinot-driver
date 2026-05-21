@@ -170,8 +170,35 @@
        (fn [_ _]))
       (is false "expected exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :db (get-in (ex-data e) [:type]))
-            "Pinot errors should have :type :db so Metabase UI shows them as database errors"))))))
+        (is (= :invalid-query (get-in (ex-data e) [:type]))
+            "Pinot errors should have :type :invalid-query (a :client error) so Metabase classifies them as 4xx user errors rather than 5xx server errors"))))))
+
+(deftest pinot-exceptions-propagate-with-client-error-metadata
+  (testing "When Pinot returns errors in the :exceptions array, the driver throws an ex-info
+            whose ex-data tells Metabase to render the message inline in the UI as a 4xx
+            client error (rather than a generic 5xx 'We're experiencing server issues' banner)."
+    (with-redefs [qp.store/metadata-provider (constantly {:details {}})
+                  lib.metadata/database (fn [provider] provider)]
+      (let [pinot-exception {:errorCode 150 :message "Some Pinot error"}]
+        (try
+          (execute/execute-reducible-query
+           (fn [_ _] {:exceptions [pinot-exception]})
+           {:native {:query {:sql "SELECT foo"}}}
+           (fn [_ _]))
+          (is false "expected exception")
+          (catch clojure.lang.ExceptionInfo e
+            (let [data (ex-data e)]
+              (is (= :invalid-query (:type data))
+                  ":client error in the qp.error-type hierarchy, not :db (a :server error)")
+              (is (= 400 (:status-code data))
+                  "explicit status-code so streaming-response/exception middleware returns 4xx, not 5xx")
+              (is (true? (:is-curated data))
+                  "signals to the FE that Pinot's error message is safe to render verbatim")
+              (is (re-find #"Some Pinot error" (ex-message e))
+                  "original Pinot message must reach the user, not be replaced by a generic wrapper")
+              (is (= [pinot-exception]
+                     (:exceptions data))
+                  "raw Pinot exception payload preserved in ex-data for introspection"))))))))
 
 (deftest reduce-results-empty-native-uses-projections
   (testing "When native query has no rows, column names come from schema projections (empty result handling)."

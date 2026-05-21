@@ -150,13 +150,23 @@
                          (let [error-messages (mapv :message exceptions)
                                combined-message (str/join "; " error-messages)]
                            (log/errorf "Pinot query returned exceptions: %s" (u/pprint-to-str exceptions))
-                           ;; Throw exception with :db error type so Metabase UI displays it as a database error
-                           ;; This ensures users see Pinot's error messages in the Metabase interface
+                           ;; Tag as :invalid-query (a :client error → 4xx) rather than :db (a :server error → 5xx)
+                           ;; so Metabase classifies this as a user/client error. Without this, the frontend
+                           ;; shows a generic "We're experiencing server issues" banner. :status-code 400
+                           ;; makes the HTTP status explicit for Metabase's streaming-response middleware.
+                           ;; :is-curated true signals to the FE that Pinot's error message is safe to surface.
                            (throw (ex-info (tru "Pinot query error: {0}" combined-message)
-                                           {:type       qp.error-type/db
-                                            :query      query
-                                            :exceptions exceptions})))
+                                           {:type        qp.error-type/invalid-query
+                                            :status-code 400
+                                            :is-curated  true
+                                            :query       query
+                                            :exceptions  exceptions})))
                          response))
+                     ;; Pass our own ex-info through unchanged. Re-wrapping in the Throwable catch
+                     ;; below would strip :status-code/:is-curated from the outermost ex-data, which
+                     ;; is where catch-exceptions middleware and streaming-response middleware look.
+                     (catch clojure.lang.ExceptionInfo e
+                       (throw e))
                      (catch Throwable e
                        (log/errorf e "Error executing query: %s" (ex-message e))
                        (throw (ex-info (tru "Error executing query: {0}" (ex-message e))
