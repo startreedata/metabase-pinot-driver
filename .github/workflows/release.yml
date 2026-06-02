@@ -26,7 +26,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         ref: ${{ inputs.commit_sha }}
         fetch-depth: 0
@@ -53,18 +53,18 @@ jobs:
         echo "✅ All inputs validated successfully"
 
     - name: Set up Java 21
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v5
       with:
         java-version: '21'
         distribution: 'temurin'
 
     - name: Setup Clojure
-      uses: DeLaGuardo/setup-clojure@13.4
+      uses: DeLaGuardo/setup-clojure@13.6.1
       with:
         cli: 1.12.1.1550
 
     - name: Cache Clojure dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/.m2
@@ -85,7 +85,7 @@ jobs:
         fi
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: '22'
         cache: 'yarn'
@@ -176,7 +176,7 @@ jobs:
         ls -la
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       with:
         tag_name: v${{ inputs.version }}
         name: Pinot Driver v${{ inputs.version }}
@@ -200,4 +200,4 @@ jobs:
         echo "📦 Artifacts:"
         echo "   - pinot.metabase-driver-v${{ inputs.version }}.jar"
         echo "   - pinot.metabase-driver-v${{ inputs.version }}.jar.sha256"
-        echo "🌐 Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ inputs.version }}" 
+        echo "🌐 Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ inputs.version }}"
