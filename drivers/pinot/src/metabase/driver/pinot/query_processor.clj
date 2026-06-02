@@ -55,6 +55,91 @@
   [_driver value]
   (str "'" value "'"))
 
+(def ^:private temporal-unit->pinot-unit
+  {:second  "second"
+   :minute  "minute"
+   :hour    "hour"
+   :day     "day"
+   :week    "week"
+   :month   "month"
+   :quarter "quarter"
+   :year    "year"})
+
+(defn- quote-identifier
+  [identifier]
+  (str "\"" (str/replace (str identifier) #"\"" "\"\"") "\""))
+
+(defn- sql-string
+  [value]
+  (str "'" (str/replace (str value) #"'" "''") "'"))
+
+(defn- field-metadata
+  [field-id]
+  (when (integer? field-id)
+    (lib.metadata/field (qp.store/metadata-provider) field-id)))
+
+(defn- resolve-field-name
+  [field-id options]
+  (cond
+    ;; Integer field IDs from Metabase's internal field references
+    (integer? field-id)
+    (let [resolved-name (:name (field-metadata field-id))]
+      (log/debugf "Resolved field ID %s to name: %s" field-id resolved-name)
+      resolved-name)
+
+    ;; String field IDs from dropdown variables from other questions
+    ;; This is crucial for making dropdown variables work correctly
+    (string? field-id)
+    (do
+      (log/debugf "Using field name directly: %s" field-id)
+      field-id)
+
+    ;; Field names from options map (fallback)
+    (map? options)
+    (let [resolved-name (:name options)]
+      (log/debugf "Resolved field from options: %s" resolved-name)
+      resolved-name)
+
+    ;; Fallback for unknown field types
+    :else
+    (let [resolved-name (str "unknown-field-" field-id)]
+      (log/debugf "Using fallback field name: %s" resolved-name)
+      resolved-name)))
+
+(defn- temporal-unit
+  [options]
+  (when-let [unit (:temporal-unit options)]
+    (when-not (= unit :default)
+      (temporal-unit->pinot-unit (keyword unit)))))
+
+(defn- pinot-time-unit-from-format
+  [format]
+  (when-let [[_ unit] (and (string? format)
+                           (re-find #"(?i)^\d+:([A-Z]+):EPOCH$" format))]
+    (u/upper-case-en unit)))
+
+(defn- pinot-input-time-unit
+  [field-info]
+  (or (pinot-time-unit-from-format (:format field-info))
+      (when (= "TIMESTAMP" (:database-type field-info))
+        "MILLISECONDS")
+      "MILLISECONDS"))
+
+(defn- temporal-expression
+  [field-name field-info unit]
+  (let [timezone (get-in *query* [:settings :timezone] "UTC")]
+    (str "DATETRUNC("
+         (sql-string unit) ", "
+         (quote-identifier field-name) ", "
+         (sql-string (pinot-input-time-unit field-info)) ", "
+         (sql-string timezone) ", "
+         (sql-string "MILLISECONDS")
+         ")")))
+
+(defn- temporal-alias
+  [field-name unit]
+  (str field-name "__" unit))
+
 (defn- resolve-field
   [field-clause]
   (log/debugf "resolve-field called with field-clause: %s (type: %s)" field-clause (type field-clause))
@@ -71,38 +156,27 @@
         ;; Handle regular field references
         :else
         (let [[_ field-id options] field-clause
-              field-name (cond
-                           ;; Integer field IDs from Metabase's internal field references
-                           (integer? field-id)
-                           (let [resolved-name (-> (qp.store/metadata-provider)
-                                                   (lib.metadata/field field-id)
-                                                   :name)]
-                             (log/debugf "Resolved field ID %s to name: %s" field-id resolved-name)
-                             resolved-name)
-
-                           ;; String field IDs from dropdown variables from other questions
-                           ;; This is crucial for making dropdown variables work correctly
-                           (string? field-id)
-                           (do
-                             (log/debugf "Using field name directly: %s" field-id)
-                             field-id)
-
-                           ;; Field names from options map (fallback)
-                           (map? options)
-                           (let [resolved-name (:name options)]
-                             (log/debugf "Resolved field from options: %s" resolved-name)
-                             resolved-name)
-
-                           ;; Fallback for unknown field types
-                           :else
-                           (let [resolved-name (str "unknown-field-" field-id)]
-                             (log/debugf "Using fallback field name: %s" resolved-name)
-                             resolved-name))]
-          (log/debugf "resolve-field result: %s" (str "\"" field-name "\""))
-          (str "\"" field-name "\""))))
+              field-info (field-metadata field-id)
+              field-name (resolve-field-name field-id options)
+              resolved-field (if-let [unit (temporal-unit options)]
+                               (temporal-expression field-name field-info unit)
+                               (quote-identifier field-name))]
+          (log/debugf "resolve-field result: %s" resolved-field)
+          resolved-field)))
     (do
       (log/errorf "Invalid field clause structure: %s" field-clause)
       (throw (ex-info "Invalid field clause structure" {:field-clause field-clause})))))
+
+(defn- resolve-select-field
+  [field-clause]
+  (let [field-expression (resolve-field field-clause)]
+    (if (and (sequential? field-clause)
+             (= :field (first field-clause))
+             (temporal-unit (nth field-clause 2 nil)))
+      (let [[_ field-id options] field-clause
+            field-name (resolve-field-name field-id options)]
+        (str field-expression " AS " (quote-identifier (temporal-alias field-name (temporal-unit options)))))
+      field-expression)))
 
 (defn- resolve-value
   "Convert a filter value into the Pinot-ready representation. Delegates to `->rvalue` so we correctly handle
@@ -113,7 +187,7 @@
 (defmethod ->rvalue :field
   [[_ id-or-name]]
   (if (integer? id-or-name)
-    (:name (lib.metadata/field (qp.store/metadata-provider) id-or-name))
+    (:name (field-metadata id-or-name))
     id-or-name))
 
 (defmethod ->rvalue :absolute-datetime
@@ -257,10 +331,12 @@
   [original-query pinot-query]
   ;; Extract breakout fields from the original query and add to pinot-query
   (let [breakout (:breakout original-query)
-        breakout-names (map resolve-field breakout)]
+        breakout-names (map resolve-field breakout)
+        breakout-selects (map resolve-select-field breakout)]
     (if (seq breakout-names)
       (-> pinot-query
-                (assoc-in [:query :group-by] breakout-names))
+                (assoc-in [:query :group-by] breakout-names)
+                (assoc-in [:query :breakout-selects] breakout-selects))
             pinot-query)))
 
 ;;; ------------------------------------------------ handle-order-by -------------------------------------------------
@@ -282,7 +358,7 @@
   [original-query pinot-query]
   ;; Extract fields from the original query and add to pinot-query
   (let [fields (:fields original-query)
-        field-names (map resolve-field fields)]
+        field-names (map resolve-select-field fields)]
     (if (seq field-names)
       (assoc-in pinot-query [:query :columns] field-names)
       (assoc-in pinot-query [:query :columns] []))))
@@ -316,8 +392,10 @@
   ;; Generate the SQL string for Pinot from the pinot-query map
   (let [
         group-by-exists? (get-in pinot-query [:query :group-by])
+        breakout-selects (or (get-in pinot-query [:query :breakout-selects])
+                             (get-in pinot-query [:query :group-by]))
         select-clause (if group-by-exists?
-                        (str "SELECT " (str/join ", " (concat (get-in pinot-query [:query :group-by]) (get-in pinot-query [:query :aggregations]))))
+                        (str "SELECT " (str/join ", " (concat breakout-selects (get-in pinot-query [:query :aggregations]))))
                         (if (get-in pinot-query [:query :aggregations])
                           (str "SELECT " (str/join ", " (get-in pinot-query [:query :aggregations])))
                           (str "SELECT " (str/join ", " (get-in pinot-query [:query :columns])))))

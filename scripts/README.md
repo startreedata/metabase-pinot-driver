@@ -12,6 +12,7 @@ Starts a local Apache Pinot cluster with sample data for testing.
 - Starts a multi-stage quickstart cluster
 - Includes sample datasets: airlineStats, baseballStats, dimBaseballTeams, githubComplexTypeEvents, githubEvents, starbucksStores
 - Waits for cluster to be ready and validates data availability
+- Validates a `DATETRUNC` time-grain query that matches Metabase temporal grouping SQL
 - Configurable via environment variables
 
 **Usage:**
@@ -55,18 +56,29 @@ After starting the cluster, you can test with these sample queries:
 SELECT COUNT(*) FROM baseballStats
 
 -- Get airline stats by carrier
-SELECT Carrier, COUNT(*) as flights 
-FROM airlineStats 
-GROUP BY Carrier 
-ORDER BY flights DESC 
+SELECT Carrier, COUNT(*) as flights
+FROM airlineStats
+GROUP BY Carrier
+ORDER BY flights DESC
 LIMIT 10
 
 -- GitHub events by type
-SELECT type, COUNT(*) as event_count 
-FROM githubEvents 
-GROUP BY type 
+SELECT type, COUNT(*) as event_count
+FROM githubEvents
+GROUP BY type
 ORDER BY event_count DESC
+
+-- Metabase time-grain grouping shape for Pinot date columns
+SELECT
+  DATETRUNC('day', "DaysSinceEpoch", 'DAYS', 'UTC', 'MILLISECONDS') AS "DaysSinceEpoch__day",
+  COUNT(*) AS "flights"
+FROM airlineStats
+GROUP BY DATETRUNC('day', "DaysSinceEpoch", 'DAYS', 'UTC', 'MILLISECONDS')
+ORDER BY DATETRUNC('day', "DaysSinceEpoch", 'DAYS', 'UTC', 'MILLISECONDS') ASC
+LIMIT 5
 ```
+
+The start script runs the `DATETRUNC` query above as an e2e guard for Metabase time-grain grouping. It fails the quickstart if Pinot returns exceptions, no bucket rows, a nonnumeric bucket, or a nonpositive count.
 
 ## Requirements
 
@@ -79,4 +91,4 @@ ORDER BY event_count DESC
 - The start script will automatically download Apache Pinot if not already present
 - The cluster includes sample data that's perfect for testing the Metabase Pinot driver
 - Scripts are based on the [startreedata/pinot-client-go](https://github.com/startreedata/pinot-client-go) repository
-- For production use, consider using proper Pinot deployment methods instead of these quickstart scripts 
+- For production use, consider using proper Pinot deployment methods instead of these quickstart scripts
