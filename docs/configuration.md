@@ -64,6 +64,37 @@ Example:
 timeoutMs=10000;useMultistageEngine=false
 ```
 
+## Temporal Grouping
+
+Metabase time-grain grouping works with Pinot date/time columns discovered from `dateTimeFieldSpecs`. In the query builder, select a date/time breakout and choose a grain such as day, week, month, quarter, or year. The driver translates that grouping to Pinot `DATETRUNC` SQL and uses the Metabase report timezone when one is configured.
+
+Example Pinot schema field:
+
+```json
+{
+  "dateTimeFieldSpecs": [
+    {
+      "name": "DaysSinceEpoch",
+      "dataType": "INT",
+      "format": "1:DAYS:EPOCH",
+      "granularity": "1:DAYS"
+    }
+  ]
+}
+```
+
+Example SQL shape generated for a daily breakout:
+
+```sql
+SELECT
+  DATETRUNC('day', "DaysSinceEpoch", 'DAYS', 'UTC', 'MILLISECONDS') AS "DaysSinceEpoch__day",
+  COUNT(*) AS "flights"
+FROM airlineStats
+GROUP BY DATETRUNC('day', "DaysSinceEpoch", 'DAYS', 'UTC', 'MILLISECONDS')
+ORDER BY DATETRUNC('day', "DaysSinceEpoch", 'DAYS', 'UTC', 'MILLISECONDS') ASC
+LIMIT 5
+```
+
 ## SSH Tunnel Support
 
 The driver supports SSH tunneling for secure connections to Pinot instances that are not directly accessible. Configure SSH tunnel settings in the Metabase database connection settings under the **SSH tunnel** section.

@@ -46,6 +46,18 @@ PID=$!
 # Print the JVM settings
 jps -lvm
 
+run_sql() {
+  local sql="$1"
+  local payload
+
+  payload=$(jq -n --arg sql "${sql}" '{sql: $sql}')
+  curl -s -X POST \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d "${payload}" \
+    "http://localhost:${BROKER_PORT_FORWARD}/query/sql"
+}
+
 ### ---------------------------------------------------------------------------
 ### Ensure Pinot cluster started correctly.
 ### ---------------------------------------------------------------------------
@@ -59,13 +71,13 @@ do
   for table in "airlineStats" "baseballStats" "dimBaseballTeams" "githubComplexTypeEvents" "githubEvents" "starbucksStores";
   do
     QUERY="select count(*) from ${table} limit 1"
-    QUERY_REQUEST='curl -s -X POST -H '"'"'Accept: application/json'"'"' -d '"'"'{"sql": "'${QUERY}'"}'"'"' http://localhost:'${BROKER_PORT_FORWARD}'/query/sql'
-    echo ${QUERY_REQUEST}
-    QUERY_RES=`eval ${QUERY_REQUEST}`
-    echo ${QUERY_RES}
+    echo "Running SQL: ${QUERY}"
+    QUERY_RES=$(run_sql "${QUERY}")
+    QUERY_STATUS=$?
+    echo "${QUERY_RES}"
 
-    if [ $? -eq 0 ]; then
-      COUNT_STAR_RES=`echo "${QUERY_RES}" | jq '.resultTable.rows[0][0]'`
+    if [ "${QUERY_STATUS}" -eq 0 ]; then
+      COUNT_STAR_RES=$(echo "${QUERY_RES}" | jq -r '.resultTable.rows[0][0] // 0')
       if [[ "${COUNT_STAR_RES}" =~ ^[0-9]+$ ]] && [ "${COUNT_STAR_RES}" -gt 0 ]; then
         SUCCEED_TABLE=$((SUCCEED_TABLE+1))
       fi
@@ -83,4 +95,42 @@ if [ "${SUCCEED_TABLE}" -lt 6 ]; then
   echo 'Quickstart failed: Cannot confirmed count-star result from quickstart table in 10 minutes'
   exit 1
 fi
-echo "Pinot cluster started correctly" 
+
+### ---------------------------------------------------------------------------
+### Validate Metabase temporal grouping query shape.
+### ---------------------------------------------------------------------------
+
+TEMPORAL_DAY_EXPRESSION="DATETRUNC('day', \"DaysSinceEpoch\", 'DAYS', 'UTC', 'MILLISECONDS')"
+TEMPORAL_QUERY="SELECT ${TEMPORAL_DAY_EXPRESSION} AS \"DaysSinceEpoch__day\", COUNT(*) AS \"flights\" FROM airlineStats GROUP BY ${TEMPORAL_DAY_EXPRESSION} ORDER BY ${TEMPORAL_DAY_EXPRESSION} ASC LIMIT 5"
+
+echo "Validating temporal bucket query used by Metabase time-grain grouping"
+echo "Running SQL: ${TEMPORAL_QUERY}"
+TEMPORAL_RES=$(run_sql "${TEMPORAL_QUERY}")
+TEMPORAL_STATUS=$?
+echo "${TEMPORAL_RES}"
+
+if [ "${TEMPORAL_STATUS}" -ne 0 ]; then
+  echo "Quickstart failed: temporal bucket query request failed"
+  exit 1
+fi
+
+TEMPORAL_EXCEPTION_COUNT=$(echo "${TEMPORAL_RES}" | jq -r '(.exceptions // []) | length' 2>/dev/null || echo 1)
+TEMPORAL_ROW_COUNT=$(echo "${TEMPORAL_RES}" | jq -r '(.resultTable.rows // []) | length' 2>/dev/null || echo 0)
+TEMPORAL_FIRST_BUCKET=$(echo "${TEMPORAL_RES}" | jq -r '.resultTable.rows[0][0] // empty' 2>/dev/null || true)
+TEMPORAL_FIRST_COUNT=$(echo "${TEMPORAL_RES}" | jq -r '.resultTable.rows[0][1] // 0' 2>/dev/null || echo 0)
+
+if [ "${TEMPORAL_EXCEPTION_COUNT}" -gt 0 ]; then
+  echo "Quickstart failed: temporal bucket query returned Pinot exceptions"
+  exit 1
+fi
+
+if [ "${TEMPORAL_ROW_COUNT}" -lt 1 ] ||
+   ! [[ "${TEMPORAL_FIRST_BUCKET}" =~ ^[0-9]+$ ]] ||
+   ! [[ "${TEMPORAL_FIRST_COUNT}" =~ ^[0-9]+$ ]] ||
+   [ "${TEMPORAL_FIRST_COUNT}" -lt 1 ]; then
+  echo "Quickstart failed: temporal bucket query did not return valid bucketed rows"
+  exit 1
+fi
+
+echo "Temporal bucket query validated correctly"
+echo "Pinot cluster started correctly"

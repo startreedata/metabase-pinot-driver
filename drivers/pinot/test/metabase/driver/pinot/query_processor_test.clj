@@ -23,7 +23,9 @@
 (def metadata-provider
   {:tables {1 {:id 1 :name "events"}}
    :fields {1 {:id 1 :name "id"}
-            2 {:id 2 :name "price"}}})
+            2 {:id 2 :name "price"}
+            3 {:id 3 :name "created_at" :database-type "TIMESTAMP" :format "1:MILLISECONDS:EPOCH"}
+            4 {:id 4 :name "order_day" :database-type "INT" :format "1:DAYS:EPOCH"}}})
 
 (def redefine-metadata!
   {:qp.store/metadata-provider (constantly metadata-provider)
@@ -179,6 +181,53 @@
     (is (= "\"dropdown_column\"" (#'qp/resolve-field [:field "dropdown_column" nil])))
     ;; options map is used when field-id is not integer/string (e.g. keyword)
     (is (= "\"from_options\"" (#'qp/resolve-field [:field :id {:name "from_options"}])))))
+
+(deftest temporal-breakout-uses-pinot-datetrunc
+  (with-redefs [qp.store/metadata-provider (:qp.store/metadata-provider redefine-metadata!)
+                lib.metadata/table (:lib.metadata/table redefine-metadata!)
+                lib.metadata/field (:lib.metadata/field redefine-metadata!)]
+    (let [query {:database 1
+                 :type :query
+                 :settings {:timezone "America/Los_Angeles"}
+                 :query {:source-table 1
+                         :breakout [[:field 3 {:temporal-unit :day}]]
+                         :aggregation [[:aggregation [:count] {:name "total"}]]
+                         :order-by [[:asc [:field 3 {:temporal-unit :day}]]]
+                         :limit 10}}
+          result (qp/mbql->native query)
+          day-expression "DATETRUNC('day', \"created_at\", 'MILLISECONDS', 'America/Los_Angeles', 'MILLISECONDS')"
+          sql (get-in result [:query :sql])]
+      (is (= [day-expression] (get-in result [:query :group-by])))
+      (is (= [(str day-expression " AS \"created_at__day\"")]
+             (get-in result [:query :breakout-selects])))
+      (is (= [(str day-expression " asc")] (get-in result [:query :order-by])))
+      (is (= (str "SELECT " day-expression " AS \"created_at__day\", COUNT(*) AS total "
+                  "FROM events GROUP BY " day-expression " ORDER BY " day-expression " asc LIMIT 10")
+             sql)))))
+
+(deftest temporal-field-select-uses-schema-input-time-unit
+  (with-redefs [qp.store/metadata-provider (:qp.store/metadata-provider redefine-metadata!)
+                lib.metadata/table (:lib.metadata/table redefine-metadata!)
+                lib.metadata/field (:lib.metadata/field redefine-metadata!)]
+    (let [query {:database 1
+                 :type :query
+                 :settings {:timezone "UTC"}
+                 :query {:source-table 1
+                         :fields [[:field 4 {:temporal-unit :month}]]
+                         :limit 5}}
+          result (qp/mbql->native query)
+          month-expression "DATETRUNC('month', \"order_day\", 'DAYS', 'UTC', 'MILLISECONDS')"]
+      (is (= [(str month-expression " AS \"order_day__month\"")]
+             (get-in result [:query :columns])))
+      (is (= (str "SELECT " month-expression " AS \"order_day__month\" FROM events LIMIT 5")
+             (get-in result [:query :sql]))))))
+
+(deftest temporal-default-unit-keeps-raw-field
+  (with-redefs [qp.store/metadata-provider (:qp.store/metadata-provider redefine-metadata!)
+                lib.metadata/table (:lib.metadata/table redefine-metadata!)
+                lib.metadata/field (:lib.metadata/field redefine-metadata!)]
+    (is (= "\"created_at\""
+           (#'qp/resolve-field [:field 3 {:temporal-unit :default}])))))
 
 (deftest resolve-field-else-unknown-type
   (with-redefs [qp.store/metadata-provider (:qp.store/metadata-provider redefine-metadata!)
