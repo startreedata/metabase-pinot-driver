@@ -21,9 +21,17 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v6
 
+    - name: Set up Java 21 for Pinot
+      uses: actions/setup-java@v5
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
     - name: Start Pinot
       run: |
         chmod +x scripts/start-pinot-quickstart.sh
+        PINOT_VERSION="$(jq -er '.pinot' app_versions.json)"
+        export PINOT_VERSION
         ./scripts/start-pinot-quickstart.sh
 
     - name: Set up Java 25

@@ -21,6 +21,7 @@
    [metabase.driver.pinot :as pinot]
    [metabase.driver.pinot.query-processor :as pinot.qp]
    [metabase.driver.pinot.sync :as pinot.sync]
+   [metabase.driver.settings :as driver.settings]
    [metabase.driver.util :as driver.util]
    [metabase.driver.sql.parameters.substitution :as sql.params.substitution]
    [metabase.lib.core :as lib]
@@ -36,6 +37,49 @@
     (is (true? (driver/database-supports? :pinot :expression-aggregations nil)))
     (is (false? (driver/database-supports? :pinot :schemas nil)))
     (is (= :sunday (driver/db-start-of-week :pinot)))))
+
+(deftest connection-hosts-test
+  (testing "the actual HTTP endpoint is checked, including IPv6 and URL userinfo"
+    (doseq [[endpoint host] [["http://controller.example.com:9000" "controller.example.com"]
+                            ["https://user:password@controller.example.com/path" "controller.example.com"]
+                            ["http://127.0.0.1:9000" "127.0.0.1"]
+                            ["http://[::1]:9000" "::1"]]]
+      (is (= [host] (driver/connection-hosts :pinot {:controller-endpoint endpoint :host "decoy.example.com"})))))
+  (testing "missing or malformed endpoints fail closed instead of reporting no hosts"
+    (doseq [endpoint [nil 42 "" "controller.example.com:9000" "http:///path"
+                     "http://bad host:9000" "http://127.0.0.1%2f.example.com" "ftp://controller.example.com"]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Invalid Pinot controller endpoint"
+                            (driver/connection-hosts :pinot {:controller-endpoint endpoint :host "8.8.8.8"})))))
+  (testing "parse errors do not expose endpoint credentials in a cause"
+    (let [e (try (driver/connection-hosts :pinot {:controller-endpoint "http://user:password@bad host:9000"})
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (= "Invalid Pinot controller endpoint" (ex-message e)))
+      (is (nil? (ex-cause e)))))
+  (testing "an enabled SSH connection is checked in addition to the unchanged controller endpoint"
+    (is (false? (driver/routes-connection-through-ssh-tunnel? :pinot)))
+    (is (= ["controller.example.com" "bastion.example.com"]
+           (driver/connection-hosts :pinot {:controller-endpoint "http://controller.example.com:9000"
+                                            :tunnel-enabled true :tunnel-host "bastion.example.com"})))
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (driver/connection-hosts :pinot {:controller-endpoint "http://controller.example.com:9000"
+                                                  :tunnel-enabled true})))))
+
+(deftest connection-hosts-network-policy-test
+  (with-redefs [driver.settings/warehouse-allowed-networks (constantly :external-only)]
+    (testing "the real Metabase policy rejects loopback controllers, even with a public tunnel host"
+      (doseq [endpoint ["http://127.0.0.1:9000" "http://[::1]:9000"]]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"private or internal network address"
+                              (driver.util/validate-connection-hosts!
+                               :pinot {:controller-endpoint endpoint :tunnel-enabled true :tunnel-host "8.8.8.8"})))))
+    (testing "an enabled private SSH host cannot hide behind a public controller"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"private or internal network address"
+                            (driver.util/validate-connection-hosts!
+                             :pinot {:controller-endpoint "http://8.8.8.8:9000"
+                                      :tunnel-enabled true :tunnel-host "127.0.0.1"}))))
+    (testing "unparseable endpoints are refused and valid public endpoints remain allowed"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"could not apply security policy"
+                            (driver.util/validate-connection-hosts! :pinot {:controller-endpoint "http:///path"})))
+      (is (nil? (driver.util/validate-connection-hosts! :pinot {:controller-endpoint "https://8.8.8.8:9000"}))))))
 
 (deftest can-connect?-test
   (let [details {:controller-endpoint "http://pinot:9000"

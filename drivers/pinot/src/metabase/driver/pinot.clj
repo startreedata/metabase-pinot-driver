@@ -33,6 +33,26 @@
 
 (driver/register! :pinot)
 
+(defmethod driver/connection-hosts :pinot
+  [_driver {:keys [controller-endpoint tunnel-enabled] :as details}]
+  (let [uri (try
+              (when (string? controller-endpoint)
+                (.parseServerAuthority (java.net.URI. controller-endpoint)))
+              (catch java.net.URISyntaxException _ nil))
+        host (some-> uri .getHost)]
+    (when-not (and (#{"http" "https"} (some-> uri .getScheme str/lower-case))
+                   (not (str/blank? host)))
+      ;; URI exceptions include the input, which may contain credentials. Keep it out of the policy error's cause.
+      (throw (ex-info "Invalid Pinot controller endpoint" {})))
+    (let [hosts [(str/replace host #"^\[|\]$" "")]]
+      ;; The SSH helper rewrites :host/:port, not :controller-endpoint, so the controller is still contacted directly.
+      (if tunnel-enabled
+        (let [tunnel-hosts (driver/hosts-from-details details [:tunnel-host])]
+          (when (empty? tunnel-hosts)
+            (throw (ex-info "Missing Pinot SSH tunnel host" {})))
+          (into hosts tunnel-hosts))
+        hosts))))
+
 (doseq [[feature supported?] {:expression-aggregations        true
                               :schemas                        false
                               :set-timezone                   true

@@ -60,11 +60,14 @@ def main():
     parser.add_argument("--driver-jar", type=Path, required=True)
     parser.add_argument("--metabase-jar", type=Path, required=True)
     parser.add_argument("--controller-url", default="http://localhost:9000")
+    parser.add_argument("--pinot-version", help="Expected Pinot version; defaults to app_versions.json")
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--startup-timeout", type=int, default=180)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    target = json.loads((root / "app_versions.json").read_text())["metabase"]
+    versions = json.loads((root / "app_versions.json").read_text())
+    target = versions["metabase"]
+    pinot_target = args.pinot_version or versions["pinot"]
     for path in (args.driver_jar, args.metabase_jar):
         require(path.is_file(), f"JAR does not exist: {path}")
     with zipfile.ZipFile(args.metabase_jar) as jar:
@@ -86,7 +89,7 @@ def main():
     evidence = {"metabase": version, "driver_version": driver_version,
                 "driver_sha256": sha256(args.driver_jar),
                 "metabase_sha256": sha256(args.metabase_jar),
-                "controller_url": args.controller_url, "checks": []}
+                "controller_url": args.controller_url, "expected_pinot_version": pinot_target, "checks": []}
     controller = args.controller_url.rstrip("/")
 
     def pinot_rows(sql):
@@ -104,6 +107,9 @@ def main():
     signal.signal(signal.SIGTERM, interrupted)
     try:
         evidence["pinot_version"] = request(controller + "/version")
+        actual_pinot_version = evidence["pinot_version"].get("pinot-distribution", "")
+        require(actual_pinot_version.split("-", 1)[0] == pinot_target,
+                f"Pinot is {actual_pinot_version}; expected {pinot_target}")
         work = Path(temporary.name)
         plugins = work / "plugins"
         plugins.mkdir()

@@ -26,7 +26,7 @@ This repository contains the Apache Pinot driver for Metabase, allowing you to c
 - Git
 - Java 25 (Eclipse Temurin)
 - Clojure CLI 1.12.3.1577
-- Apache Pinot 1.3.0
+- Apache Pinot 1.5.1
 - Metabase v0.64.1 (the pinned build target)
 
 Building the Metabase frontend with `make build` or `make front_end` also requires NodeJS 22.23.2 and Bun 1.3.14. `make driver` only requires Git, Java, Clojure CLI, Make, and jq.
@@ -122,12 +122,18 @@ These tests use mocked Pinot responses. Release compatibility also requires load
 
 ### Tested Compatibility
 
-On 2026-10-22, the source-built plugin passed the packaged runtime smoke test in
-Metabase **v0.64.1** (`7010f27`) on Java 25 against a local **Pinot 1.6.0 RC**
-(`54f145f`). Connection, schema sync, native SQL, MBQL selection and aggregation,
-ordering, and number/text/field/optional parameters matched direct Pinot results.
-The existing 86 tests also passed. CI runs the same packaged smoke test against
-the pinned Pinot 1.3.0 quickstart; check its result for that version's validation.
+On 2026-10-22, the source-built plugin passed all 13 packaged runtime checks in
+Metabase **v0.64.1** (`7010f27`) on Java 25 against both official Pinot releases:
+
+| Pinot release | Release commit | Pinot runtime |
+|:--------------|:---------------|:--------------|
+| 1.5.0 | `30fdfeea` | Java 21.0.10 |
+| 1.5.1 | `020ff0d0` | Java 21.0.11 |
+
+Connection, schema sync, native SQL, MBQL selection and aggregation, ordering,
+and number/text/field/optional parameters matched direct Pinot results for each
+release. The existing suite and focused host-policy regressions passed (88 tests).
+CI runs the same packaged smoke test against the pinned Pinot 1.5.1 quickstart.
 See [the reproducible smoke command](docs/development.md#packaged-driver-compatibility).
 
 ### Manual Testing Notes (Variable Substitution)

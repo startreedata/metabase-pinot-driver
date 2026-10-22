@@ -85,6 +85,10 @@ and removes its temporary database on exit. Query responses, version information
 artifact hashes, and logs remain in the output directory. CI runs this gate against
 the pinned Pinot quickstart before reporting compatibility.
 
+The gate verifies the Pinot runtime version against `app_versions.json` (currently
+1.5.1). To check another concrete release, pass `--pinot-version`, for example
+`--pinot-version 1.5.0` when that release is running at the supplied controller URL.
+
 The driver accepts Metabase's MBQL 5 input through its legacy-query conversion API
 and retains the Pinot SQL compiler. Native parameters use the current stage-based
 hook; execution reads the compiled query from `:qp/compiled`.
