@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise a candidate driver JAR in the pinned Metabase against a Pinot quickstart.
+"""Exercise a candidate driver JAR in a requested Metabase runtime against Pinot.
 
 Requires Python 3.9+, Java 25, and a Pinot controller with the baseballStats sample table.
 Uses only Python's standard library. Credentials and the disposable H2 database are
@@ -59,6 +59,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--driver-jar", type=Path, required=True)
     parser.add_argument("--metabase-jar", type=Path, required=True)
+    parser.add_argument("--metabase-version", help="Expected runtime tag; defaults to the source build pin")
     parser.add_argument("--controller-url", default="http://localhost:9000")
     parser.add_argument("--pinot-version", help="Expected Pinot version; defaults to app_versions.json")
     parser.add_argument("--output-dir", type=Path)
@@ -66,7 +67,8 @@ def main():
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     versions = json.loads((root / "app_versions.json").read_text())
-    target = versions["metabase"]
+    build_target = versions["metabase"]
+    target = args.metabase_version or build_target
     pinot_target = args.pinot_version or versions["pinot"]
     for path in (args.driver_jar, args.metabase_jar):
         require(path.is_file(), f"JAR does not exist: {path}")
@@ -74,19 +76,20 @@ def main():
         version = dict(line.split("=", 1) for line in jar.read("version.properties").decode().splitlines()
                        if "=" in line and not line.startswith("#"))
     require(version.get("tag") == target,
-            f"Metabase JAR is {version.get('tag')}; app_versions.json requires {target}")
+            f"Metabase JAR is {version.get('tag')}; expected runtime {target}")
     with zipfile.ZipFile(args.driver_jar) as jar:
         manifest = jar.read("metabase-plugin.yaml").decode()
     driver_version = next((line.partition(":")[2].strip().strip("\"'")
                            for line in manifest.splitlines() if line.startswith("  version:")), None)
-    require(driver_version == target.removeprefix("v"),
-            f"Driver version is {driver_version}; expected {target.removeprefix('v')}")
+    require(driver_version == build_target.removeprefix("v"),
+            f"Driver version is {driver_version}; source build pin requires {build_target.removeprefix('v')}")
     java = str(Path(os.environ["JAVA_HOME"]) / "bin/java") if os.environ.get("JAVA_HOME") else shutil.which("java")
     require(java, "Java is required")
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     output = (args.output_dir or root / "target" / f"smoke-test-{stamp}").resolve()
     output.mkdir(parents=True, exist_ok=True)
-    evidence = {"metabase": version, "driver_version": driver_version,
+    evidence = {"metabase": version, "metabase_build_target": build_target,
+                "expected_metabase_version": target, "driver_version": driver_version,
                 "driver_sha256": sha256(args.driver_jar),
                 "metabase_sha256": sha256(args.metabase_jar),
                 "controller_url": args.controller_url, "expected_pinot_version": pinot_target, "checks": []}
@@ -138,7 +141,7 @@ def main():
             require(time.monotonic() < deadline, f"Metabase startup timed out; see {output / 'metabase.log'}")
             time.sleep(1)
         props = request(base + "/api/session/properties")
-        require(props["version"]["tag"] == target, "Running Metabase version differs from the build pin")
+        require(props["version"]["tag"] == target, "Running Metabase version differs from the expected runtime")
         require("pinot" in props.get("engines", {}), "Packaged Pinot driver was not discovered")
         session = request(base + "/api/setup", {
             "token": props["setup-token"],

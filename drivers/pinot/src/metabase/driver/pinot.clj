@@ -133,17 +133,22 @@
                   {:replacement-snippet (inline-params replacement-snippet prepared-statement-args)
                    :prepared-statement-args []}))))
 
+(defn- substitute-parameter-stage
+  [metadata-providerable {native-query :native :as stage}]
+  (let [params-map          (params.values/stage->params-map metadata-providerable stage)
+        referenced-card-ids (params.values/referenced-card-ids params-map)
+        [sql params]        (sql.params.substitute/substitute metadata-providerable (lib/parse-parameters native-query) params-map)]
+    (cond-> (assoc stage :native sql :params params)
+      (seq referenced-card-ids)
+      (update :query-permissions/referenced-card-ids set/union referenced-card-ids))))
+
 (defmethod driver/substitute-native-parameters-in-stage-method :pinot
-  [_ query stage-number]
-  (lib/update-query-stage
-   query stage-number
-   (fn [{native-query :native :as stage}]
-     (let [params-map          (params.values/stage->params-map query stage)
-           referenced-card-ids (params.values/referenced-card-ids params-map)
-           [sql params]        (sql.params.substitute/substitute query (lib/parse-parameters native-query) params-map)]
-       (cond-> (assoc stage :native sql :params params)
-         (seq referenced-card-ids)
-         (update :query-permissions/referenced-card-ids set/union referenced-card-ids))))))
+  [_ query-or-metadata stage-or-number]
+  ;; Metabase 0.63 passes metadata and a stage; 0.64 passes the whole query and a stage number.
+  (if (map? stage-or-number)
+    (substitute-parameter-stage query-or-metadata stage-or-number)
+    (lib/update-query-stage query-or-metadata stage-or-number
+                            (partial substitute-parameter-stage query-or-metadata))))
 
 (defn- truncate-for-logging
   "Safely truncate query content for logging to avoid exposing sensitive data and reduce log verbosity."

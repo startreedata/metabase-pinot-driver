@@ -122,18 +122,21 @@ These tests use mocked Pinot responses. Release compatibility also requires load
 
 ### Tested Compatibility
 
-On 2026-10-22, the source-built plugin passed all 13 packaged runtime checks in
-Metabase **v0.64.1** (`7010f27`) on Java 25 against both official Pinot releases:
+On 2026-10-22, the same unmodified **0.64.1** driver JAR passed all 13 packaged
+runtime checks for each combination below (Metabase on Java 25, Pinot on Java 21):
 
-| Pinot release | Release commit | Pinot runtime |
-|:--------------|:---------------|:--------------|
-| 1.5.0 | `30fdfeea` | Java 21.0.10 |
-| 1.5.1 | `020ff0d0` | Java 21.0.11 |
+| Metabase runtime | Pinot release | Result |
+|:-----------------|:--------------|:-------|
+| v0.63.20 (`3b8fcdc`) | 1.5.1 | 13/13 passed |
+| v0.64.1 (`7010f27`) | 1.5.1 | 13/13 passed |
+| v0.64.1 (`7010f27`) | 1.5.0 | 13/13 passed |
 
 Connection, schema sync, native SQL, MBQL selection and aggregation, ordering,
 and number/text/field/optional parameters matched direct Pinot results for each
 release. The existing suite and focused host-policy regressions passed (88 tests).
-CI runs the same packaged smoke test against the pinned Pinot 1.5.1 quickstart.
+CI builds once, runs the unit suite once, and checks both declared Metabase
+runtimes against the pinned Pinot 1.5.1 quickstart. The build target and embedded
+driver version remain v0.64.1 and 0.64.1 respectively.
 See [the reproducible smoke command](docs/development.md#packaged-driver-compatibility).
 
 ### Manual Testing Notes (Variable Substitution)

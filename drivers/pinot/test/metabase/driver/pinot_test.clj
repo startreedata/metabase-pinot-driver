@@ -172,10 +172,14 @@
               [{:name "state" :display-name "State" :type :dimension
                 :dimension [:field {:lib/uuid "1d31d178-252e-40f1-ab81-4b61a9c932fa"} 2]
                 :widget-type :category :default "CA"}]
-              "SELECT * FROM orders WHERE \"orders\".\"state\" = 'CA'"]]]
-      (testing label
-        (let [result (driver/substitute-native-parameters-in-stage :pinot (parameter-query sql tags) 0)
-              stage (lib/query-stage result 0)]
+              "SELECT * FROM orders WHERE \"orders\".\"state\" = 'CA'"]]
+            contract [:stage :query]]
+      (testing (str label " (" (name contract) " contract)")
+        (let [query (parameter-query sql tags)
+              result (driver/substitute-native-parameters-in-stage-method
+                      :pinot (if (= contract :stage) parameter-metadata query)
+                      (if (= contract :stage) (lib/query-stage query 0) 0))
+              stage (if (= contract :stage) result (lib/query-stage result 0))]
           (is (= expected (:native stage)))
           (is (empty? (:params stage))))))))
 
@@ -186,9 +190,13 @@
       (with-redefs [params.values/stage->params-map
                     (constantly {"card" (lib/parsed-referenced-card-query-param 2 "SELECT '?', ?" [100])})]
         (binding [driver/*driver* :pinot]
-          (let [stage (lib/query-stage (driver/substitute-native-parameters-in-stage :pinot query 0) 0)]
-            (is (= "SELECT (SELECT '?', 100)" (:native stage)))
-            (is (= #{1 2} (:query-permissions/referenced-card-ids stage)))))))))
+          (doseq [contract [:stage :query]]
+            (let [result (driver/substitute-native-parameters-in-stage-method
+                          :pinot (if (= contract :stage) parameter-metadata query)
+                          (if (= contract :stage) (lib/query-stage query 0) 0))
+                  stage (if (= contract :stage) result (lib/query-stage result 0))]
+              (is (= "SELECT (SELECT '?', 100)" (:native stage)))
+              (is (= #{1 2} (:query-permissions/referenced-card-ids stage))))))))))
 
 (deftest add-timeout-to-query-test
   (testing "SQL strings are wrapped in Pinot query maps with a timeout"

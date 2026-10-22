@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   test:
+    needs: build
     runs-on: ubuntu-latest
     if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true) }}
     permissions:
@@ -66,23 +67,29 @@ jobs:
           echo "Metabase directory found"
         fi
 
-    - name: Build driver
-      run: make driver
+    - name: Download packaged driver
+      uses: actions/download-artifact@v8
+      with:
+        name: pinot-driver
+        path: metabase/resources/modules
 
     - name: Run tests with coverage
       run: make test
 
-    - name: Smoke test the packaged driver in pinned Metabase
+    - name: Smoke test the packaged driver in supported Metabase runtimes
       run: |
-        mkdir -p target/runtime
-        metabase_version=$(jq -r '.metabase' app_versions.json)
-        curl --fail --location --retry 3 \
-          "https://downloads.metabase.com/${metabase_version}/metabase.jar" \
-          --output target/runtime/metabase.jar
-        python3 scripts/smoke-test.py \
-          --driver-jar metabase/resources/modules/pinot.metabase-driver.jar \
-          --metabase-jar target/runtime/metabase.jar \
-          --output-dir target/smoke
+        metabase_versions=$(jq -er '([.metabase] + (.metabase_compatibility // [])) | unique[]' app_versions.json)
+        while IFS= read -r metabase_version; do
+          mkdir -p "target/runtime/${metabase_version}"
+          curl --fail --location --retry 3 \
+            "https://downloads.metabase.com/${metabase_version}/metabase.jar" \
+            --output "target/runtime/${metabase_version}/metabase.jar"
+          python3 scripts/smoke-test.py \
+            --driver-jar metabase/resources/modules/pinot.metabase-driver.jar \
+            --metabase-jar "target/runtime/${metabase_version}/metabase.jar" \
+            --metabase-version "${metabase_version}" \
+            --output-dir "target/smoke/${metabase_version}"
+        done <<< "$metabase_versions"
 
     - name: Upload test results and coverage
       uses: actions/upload-artifact@v7
@@ -255,6 +262,13 @@ jobs:
     
     - name: Run driver verification
       run: clojure verify_driver.clj
+
+    - name: Upload packaged driver
+      uses: actions/upload-artifact@v7
+      with:
+        name: pinot-driver
+        path: metabase/resources/modules/pinot.metabase-driver.jar
+        if-no-files-found: error
 
   security:
     # Secrets are not available for PRs from forks; only run when secrets can be read.

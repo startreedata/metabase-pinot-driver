@@ -83,7 +83,14 @@ connects to Pinot, syncs its schema, and compares native SQL, MBQL, aggregations
 and native parameter results with direct Pinot queries. It stops its application
 and removes its temporary database on exit. Query responses, version information,
 artifact hashes, and logs remain in the output directory. CI runs this gate against
-the pinned Pinot quickstart before reporting compatibility.
+the pinned Pinot quickstart before reporting compatibility. It builds one driver
+artifact, runs the unit suite once, and reuses that artifact for the deduplicated
+Metabase build pin plus the optional `metabase_compatibility` array in
+`app_versions.json`.
+
+To check the declared v0.63.20 compatibility runtime, use its official Metabase JAR
+and add `--metabase-version v0.63.20`. This selects only the runtime: the driver
+manifest must still match the v0.64.1 source build pin, so no JAR relabeling is needed.
 
 The gate verifies the Pinot runtime version against `app_versions.json` (currently
 1.5.1). To check another concrete release, pass `--pinot-version`, for example
