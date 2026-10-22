@@ -19,6 +19,11 @@ nav_order: 5
 
 Download the latest release from the [GitHub Releases page](https://github.com/startreedata/metabase-pinot-driver/releases).
 
+See the [maintenance policy](https://github.com/startreedata/metabase-pinot-driver/blob/main/MAINTENANCE.md)
+for upstream release alignment and compatibility requirements. Driver versions
+use independent semantic versioning; release notes must name the exact Metabase
+versions tested.
+
 Each release includes:
 
 - `pinot.metabase-driver-v{version}.jar` — The driver JAR file
