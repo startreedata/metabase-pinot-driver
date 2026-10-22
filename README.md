@@ -181,11 +181,11 @@ Use the provided release script for a more convenient CLI experience:
 ### Release Process
 
 The release workflow will:
-1. Validate the version format and commit SHA
-2. Build the Pinot driver JAR
-3. Create release artifacts with checksums
-4. Generate release notes
-5. Create a GitHub release with the artifacts attached
+1. Validate the source commit and require the release version to match pinned Metabase
+2. Require successful CI for that exact commit and reject an existing release or tag
+3. Build the driver with Java 25 and the Clojure version in `app_versions.json`
+4. Smoke test that JAR in the official pinned Metabase against pinned Pinot, retaining runtime evidence even on failure
+5. Verify the tested JAR's digest, then publish that same JAR with its checksum and tested versions in the release notes
 
 ### Release Artifacts
 
