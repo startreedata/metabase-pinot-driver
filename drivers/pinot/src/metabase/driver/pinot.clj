@@ -19,8 +19,6 @@
    [cheshire.core :as json]
    [clj-http.client :as http]
    [metabase.driver :as driver]
-   [metabase.driver.common.parameters.parse :as params.parse]
-   [metabase.driver.common.parameters.values :as params.values]
    [metabase.driver.pinot.client :as pinot.client]
    [metabase.driver.pinot.execute :as pinot.execute]
    [metabase.driver.pinot.query-processor :as pinot.qp]
@@ -28,6 +26,8 @@
    [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh]
    [metabase.driver.sql.parameters.substitute :as sql.params.substitute]
    [metabase.driver.sql.parameters.substitution :as sql.params.substitution]
+   [metabase.lib.core :as lib]
+   [metabase.query-processor.parameters.values :as params.values]
    [metabase.util.date-2 :as u.date]
    [metabase.util.log :as log]))
 
@@ -83,38 +83,47 @@
     :else (str v)))
 
 (defn- inline-params
-  "Replace JDBC-style `?` placeholders in `sql` with literal values from `params` in order."
+  "Inline generated placeholders, leaving quoted SQL and comments intact."
   [sql params]
-  (reduce (fn [s param]
-            (if (str/includes? s "?")
-              (str/replace-first s "?" (pinot-literal param))
-              s))
-          sql
-          (or params [])))
+  (let [remaining (volatile! (seq params))]
+    (str/replace sql #"(?s)'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|`(?:``|[^`])*`|--[^\r\n]*|/\*.*?\*/|\?"
+                 (fn [token]
+                   (if (and (= token "?") (seq @remaining))
+                     (let [value (first @remaining)]
+                       (vswap! remaining next)
+                       (pinot-literal value))
+                     token)))))
 
-(defmethod sql.params.substitution/->replacement-snippet-info [:pinot nil]
-  [_driver value]
-  (sql.params.substitution/->replacement-snippet-info :sql value))
+;; Reuse SQL parameter parsing without inheriting the SQL driver's dialect or feature set. Inline each generated
+;; snippet before it is inserted into the user's SQL, because Pinot's HTTP API has no prepared-statement arguments.
+(doseq [dispatch-type [nil Object
+                      :metabase.lib.parameters.parse.types/date
+                      :metabase.lib.parameters.parse.types/date-range
+                      :metabase.lib.parameters.parse.types/date-time-range
+                      :metabase.lib.parameters.parse.types/field-filter
+                      :metabase.lib.parameters.parse.types/temporal-unit
+                      :metabase.lib.parameters.parse.types/referenced-card-query
+                      :metabase.lib.parameters.parse.types/referenced-table-query
+                      :metabase.lib.parameters.parse.types/referenced-query-snippet]]
+  (.addMethod sql.params.substitution/->replacement-snippet-info
+              [:pinot dispatch-type]
+              (fn [_driver value & args]
+                (let [{:keys [replacement-snippet prepared-statement-args]}
+                      (apply sql.params.substitution/->replacement-snippet-info :sql value args)]
+                  {:replacement-snippet (inline-params replacement-snippet prepared-statement-args)
+                   :prepared-statement-args []}))))
 
-(defmethod sql.params.substitution/->replacement-snippet-info [:pinot Object]
-  [_driver value]
-  (sql.params.substitution/->replacement-snippet-info :sql value))
-
-(defmethod driver/substitute-native-parameters :pinot
-  [_ {:keys [query] :as inner-query}]
-  ;; Reuse Metabase's SQL parameter parser, then inline params because Pinot's HTTP API doesn't support prepared
-  ;; statement args.
-  (let [params-map          (params.values/query->params-map inner-query)
-        referenced-card-ids (params.values/referenced-card-ids params-map)
-        [sql params]        (-> query
-                                params.parse/parse
-                                (sql.params.substitute/substitute params-map))
-        sql                 (inline-params sql params)]
-    (cond-> (assoc inner-query
-                   :query  sql
-                   :params params)
-      (seq referenced-card-ids)
-      (update :query-permissions/referenced-card-ids set/union referenced-card-ids))))
+(defmethod driver/substitute-native-parameters-in-stage-method :pinot
+  [_ query stage-number]
+  (lib/update-query-stage
+   query stage-number
+   (fn [{native-query :native :as stage}]
+     (let [params-map          (params.values/stage->params-map query stage)
+           referenced-card-ids (params.values/referenced-card-ids params-map)
+           [sql params]        (sql.params.substitute/substitute query (lib/parse-parameters native-query) params-map)]
+       (cond-> (assoc stage :native sql :params params)
+         (seq referenced-card-ids)
+         (update :query-permissions/referenced-card-ids set/union referenced-card-ids))))))
 
 (defn- truncate-for-logging
   "Safely truncate query content for logging to avoid exposing sensitive data and reduce log verbosity."
@@ -161,7 +170,7 @@
 
   (pinot.execute/execute-reducible-query
    (partial pinot.client/do-query-with-cancellation (:canceled-chan context))
-   (update-in query [:native :query] add-timeout-to-query 30000) ; 30 second default timeout
+   (update-in query [:qp/compiled :query] add-timeout-to-query 30000) ; 30 second default timeout
    respond))
 
 (defmethod driver/db-start-of-week :pinot

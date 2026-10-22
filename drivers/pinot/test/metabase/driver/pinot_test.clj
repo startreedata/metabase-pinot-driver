@@ -22,10 +22,10 @@
    [metabase.driver.pinot.query-processor :as pinot.qp]
    [metabase.driver.pinot.sync :as pinot.sync]
    [metabase.driver.util :as driver.util]
-   [metabase.driver.common.parameters.parse :as params.parse]
-   [metabase.driver.common.parameters.values :as params.values]
-   [metabase.driver.sql.parameters.substitute :as sql.params.substitute]
    [metabase.driver.sql.parameters.substitution :as sql.params.substitution]
+   [metabase.lib.core :as lib]
+   [metabase.lib.metadata.protocols :as lib.metadata.protocols]
+   [metabase.query-processor.parameters.values :as params.values]
    [metabase.driver.pinot.client :as client]
    [metabase.driver.pinot.execute :as execute]
    [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh]))
@@ -80,35 +80,71 @@
                       {:details details :query query})]
         (driver/execute-reducible-query
          :pinot
-         {:native {:query "SELECT 1"}}
+         {:qp/compiled {:query "SELECT 1"}}
          context
          respond))
 
-      (is (= 30000 (get-in @captured [:query :native :query :queryOptions :timeoutMs])))
+      (is (= 30000 (get-in @captured [:query :qp/compiled :query :queryOptions :timeoutMs])))
       (is (= {:sql "SELECT 1" :queryOptions {:timeoutMs 30000}}
-             (get-in @captured [:query :native :query]))))))
+             (get-in @captured [:query :qp/compiled :query]))))))
+
+(def ^:private parameter-metadata
+  (reify lib.metadata.protocols/MetadataProvider
+    (database [_]
+      {:lib/type :metadata/database :id 1 :engine :pinot :name "Pinot" :features #{:native-parameters}})
+    (metadatas [_ spec]
+      (into []
+            (comp (filter #(= (:lib/type %) (:lib/type spec)))
+                  (lib.metadata.protocols/default-spec-filter-xform spec))
+            [{:lib/type :metadata/table :id 1 :db-id 1 :name "orders" :display-name "Orders"}
+             {:lib/type :metadata/column :id 2 :table-id 1 :name "state" :display-name "State"
+              :base-type :type/Text :effective-type :type/Text}]))
+    (setting [_ _] nil)))
+
+(defn- parameter-query
+  [sql tags]
+  {:lib/type :mbql/query
+   :lib/metadata parameter-metadata
+   :database 1
+   :stages [{:lib/type :mbql.stage/native
+             :native sql
+             :template-tags tags}]})
 
 (deftest substitute-native-parameters-inlines-values
-  (testing "native parameter substitution inlines values into SQL"
-    (let [query {:query "select * from orders where id = ?"}]
-      (with-redefs [params.values/query->params-map (constantly {})
-                    params.values/referenced-card-ids (constantly #{})
-                    params.parse/parse (fn [sql] [sql []])
-                    sql.params.substitute/substitute (fn [_ _] ["select * from orders where id = ?" [100]])]
-         (let [result (driver/substitute-native-parameters :pinot query)]
-           (is (= "select * from orders where id = 100" (:query result)))
-          (is (= [100] (:params result))))))))
+  (binding [driver/*driver* :pinot]
+    (doseq [[label sql tags expected]
+            [["number" "SELECT {{value}}" [{:name "value" :display-name "Value" :type :number :default 100}]
+              "SELECT 100"]
+             ["quoted string and literal question mark" "SELECT '?', {{value}}"
+              [{:name "value" :display-name "Value" :type :text :default "O'Reilly?"}]
+              "SELECT '?', 'O''Reilly?'"]
+             ["date" "SELECT {{value}}" [{:name "value" :display-name "Value" :type :date :default "2024-01-01"}]
+              "SELECT '2024-01-01'"]
+             ["absent optional" "SELECT 1 [[WHERE state = {{value}}]]"
+              [{:name "value" :display-name "Value" :type :text}] "SELECT 1"]
+             ["present optional" "SELECT 1 [[WHERE state = {{value}}]]"
+              [{:name "value" :display-name "Value" :type :text :default "CA"}] "SELECT 1 WHERE state = 'CA'"]
+             ["field filter" "SELECT * FROM orders WHERE {{state}}"
+              [{:name "state" :display-name "State" :type :dimension
+                :dimension [:field {:lib/uuid "1d31d178-252e-40f1-ab81-4b61a9c932fa"} 2]
+                :widget-type :category :default "CA"}]
+              "SELECT * FROM orders WHERE \"orders\".\"state\" = 'CA'"]]]
+      (testing label
+        (let [result (driver/substitute-native-parameters-in-stage :pinot (parameter-query sql tags) 0)
+              stage (lib/query-stage result 0)]
+          (is (= expected (:native stage)))
+          (is (empty? (:params stage))))))))
 
 (deftest substitute-native-parameters-tracks-card-ids
   (testing "referenced card ids are merged into permission metadata"
-    (let [query {:query "select 1"
-                 :query-permissions/referenced-card-ids #{1}}]
-      (with-redefs [params.values/query->params-map (constantly {})
-                    params.values/referenced-card-ids (constantly #{2})
-                    params.parse/parse (fn [sql] [sql []])
-                    sql.params.substitute/substitute (fn [[sql params] _] [sql params])]
-        (let [result (driver/substitute-native-parameters :pinot query)]
-          (is (= #{1 2} (:query-permissions/referenced-card-ids result))))))))
+    (let [query (assoc-in (parameter-query "SELECT {{card}}" [])
+                          [:stages 0 :query-permissions/referenced-card-ids] #{1})]
+      (with-redefs [params.values/stage->params-map
+                    (constantly {"card" (lib/parsed-referenced-card-query-param 2 "SELECT '?', ?" [100])})]
+        (binding [driver/*driver* :pinot]
+          (let [stage (lib/query-stage (driver/substitute-native-parameters-in-stage :pinot query 0) 0)]
+            (is (= "SELECT (SELECT '?', 100)" (:native stage)))
+            (is (= #{1 2} (:query-permissions/referenced-card-ids stage)))))))))
 
 (deftest add-timeout-to-query-test
   (testing "SQL strings are wrapped in Pinot query maps with a timeout"
@@ -165,12 +201,14 @@
     (is (= "select 1"
            (#'pinot/inline-params "select 1" [42])))
     (is (= "select ?"
-           (#'pinot/inline-params "select ?" nil)))))
+           (#'pinot/inline-params "select ?" nil)))
+    (is (= "SELECT '?', \"?\", 'value?', 2 -- ?\n/* ? */"
+           (#'pinot/inline-params "SELECT '?', \"?\", ?, ? -- ?\n/* ? */" ["value?" 2])))))
 
-(deftest replacement-snippet-info-uses-sql-impl
-  (is (= (sql.params.substitution/->replacement-snippet-info :sql nil)
+(deftest replacement-snippet-info-inlines-sql-impl
+  (is (= {:replacement-snippet "NULL" :prepared-statement-args []}
          (sql.params.substitution/->replacement-snippet-info :pinot nil)))
-  (is (= (sql.params.substitution/->replacement-snippet-info :sql "abc")
+  (is (= {:replacement-snippet "'abc'" :prepared-statement-args []}
          (sql.params.substitution/->replacement-snippet-info :pinot "abc"))))
 
 (deftest driver-defmethods-delegate-to-implementations
@@ -199,7 +237,7 @@
   (testing "Pinot driver should handle empty result sets without error"
     (let [empty-result {:projections ["DestStateName" "count(*)"]
                         :results []}
-          query {:type :query :native {:mbql? false}}
+          query {:qp/compiled {:mbql? false}}
           ;; Mock the respond function to capture the result
           captured-result (atom nil)
           respond-fn (fn [metadata rows]

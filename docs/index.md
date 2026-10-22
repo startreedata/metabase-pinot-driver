@@ -38,9 +38,9 @@ This driver enables Metabase to connect to Apache Pinot databases, bringing Pino
 | Component | Version |
 |:----------|:--------|
 | Apache Pinot | 1.3.0 |
-| Metabase | v0.55.7 |
-| Java | 17 |
-| Clojure | 1.12.1.1550 |
+| Metabase build target | v0.64.1 |
+| Java | 25 |
+| Clojure CLI | 1.12.3.1577 |
 
 ## Quick Start
 

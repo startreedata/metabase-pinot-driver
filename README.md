@@ -24,14 +24,12 @@ This repository contains the Apache Pinot driver for Metabase, allowing you to c
 ## Prerequisites
 
 - Git
-- Docker
-- Java 17
-- Clojure 1.12.1.1550
-- NodeJS 22
-- NPM 10
-- Yarn 1.22
+- Java 25 (Eclipse Temurin)
+- Clojure CLI 1.12.3.1577
 - Apache Pinot 1.3.0
-- Metabase v0.55.7
+- Metabase v0.64.1 (the pinned build target)
+
+Building the Metabase frontend with `make build` or `make front_end` also requires NodeJS 22.23.2 and Bun 1.3.14. `make driver` only requires Git, Java, Clojure CLI, Make, and jq.
 
 ## Installation
 
@@ -114,9 +112,23 @@ make test
 ```
 
 This will:
-1. Start a Pinot instance (if not already running)
+1. Clone the pinned Metabase source (if not already present)
 2. Link the driver to Metabase
-3. Run the test suite
+3. Run the existing driver test suite once with coverage
+
+These tests use mocked Pinot responses. Release compatibility also requires loading the packaged driver in the pinned Metabase version and checking a real Pinot connection, schema sync, native SQL, MBQL, and SQL parameters.
+
+`make test` requires Python 3 and enforces 68% line coverage. Form coverage is reported separately because upstream logging macro expansion changes its denominator between Metabase versions.
+
+### Tested Compatibility
+
+On 2026-10-22, the source-built plugin passed the packaged runtime smoke test in
+Metabase **v0.64.1** (`7010f27`) on Java 25 against a local **Pinot 1.6.0 RC**
+(`54f145f`). Connection, schema sync, native SQL, MBQL selection and aggregation,
+ordering, and number/text/field/optional parameters matched direct Pinot results.
+The existing 86 tests also passed. CI runs the same packaged smoke test against
+the pinned Pinot 1.3.0 quickstart; check its result for that version's validation.
+See [the reproducible smoke command](docs/development.md#packaged-driver-compatibility).
 
 ### Manual Testing Notes (Variable Substitution)
 

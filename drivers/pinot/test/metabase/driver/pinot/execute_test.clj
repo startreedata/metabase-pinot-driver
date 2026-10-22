@@ -53,10 +53,9 @@
   (let [result {:projections ["count"]
                 :results [{"count" 5} {"count" 6}]}
         captured (atom nil)]
-  (with-redefs [annotate/merged-column-info (fn [_ metadata] (:cols metadata))
-                annotate/base-type-inferer fake-base-type-inferer]
+  (with-redefs [annotate/base-type-inferer fake-base-type-inferer]
     (#'execute/reduce-results
-     {:native {:mbql? true}}
+     {:qp/compiled {:mbql? true}}
      result
        (fn [metadata rows]
          (reset! captured {:metadata metadata :rows rows})))
@@ -91,14 +90,13 @@
   (let [captured (atom nil)]
     (with-redefs [qp.store/metadata-provider (constantly {:details {}})
                   lib.metadata/database (fn [provider] provider)
-                  annotate/merged-column-info (fn [_ metadata] (:cols metadata))
                   annotate/base-type-inferer fake-base-type-inferer]
       (execute/execute-reducible-query
        (fn [_details query]
          ;; ensure JSON queries are parsed before execution
          (is (= {:sql "SELECT 1"} query))
          {:resultTable {:dataSchema {:columnNames ["count"]} :rows [[3]]}})
-       {:native {:query "{\"sql\":\"SELECT 1\"}" :mbql? true}}
+       {:qp/compiled {:query "{\"sql\":\"SELECT 1\"}" :mbql? true}}
        (fn [metadata rows]
          (reset! captured {:metadata metadata :rows rows}))))
     (is (= [[3]] (:rows @captured)))
@@ -111,7 +109,7 @@
     (is (thrown? Exception
                  (execute/execute-reducible-query
                   (fn [_ _] (throw (RuntimeException. "boom")))
-                  {:native {:query {:sql "SELECT 1"}}}
+                  {:qp/compiled {:query {:sql "SELECT 1"}}}
                   (fn [_ _]))))))
 
 (deftest execute-reducible-query-wraps-post-process-errors
@@ -122,7 +120,7 @@
                           #"Error post-processing Pinot query results"
                           (execute/execute-reducible-query
                            (fn [_ _] {:resultTable {}})
-                           {:native {:query {:sql "SELECT 1"}}}
+                           {:qp/compiled {:query {:sql "SELECT 1"}}}
                            (fn [_ _]))))))
 
 (deftest execute-reducible-query-wraps-reduce-errors
@@ -133,16 +131,15 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #"Error reducing Pinot query results"
                           (execute/execute-reducible-query
-                           (fn [_ _] {:native {:query {}}})
-                           {:native {:query {:sql "SELECT 1"}}}
+                           (fn [_ _] {:qp/compiled {:query {}}})
+                           {:qp/compiled {:query {:sql "SELECT 1"}}}
                            (fn [_ _]))))))
 
 (deftest reduce-results-handles-native-queries
   (let [captured (atom nil)]
-    (with-redefs [annotate/merged-column-info (fn [_ metadata] (:cols metadata))
-                  annotate/base-type-inferer fake-base-type-inferer]
+    (with-redefs [annotate/base-type-inferer fake-base-type-inferer]
       (#'execute/reduce-results
-       {:native {:mbql? false}}
+       {:qp/compiled {:mbql? false}}
        {:results [{"col" 1} {"col" 2}]}
        (fn [metadata rows]
          (reset! captured {:metadata metadata :rows rows}))))
@@ -159,14 +156,14 @@
                           (execute/execute-reducible-query
                            (fn [_ _] {:exceptions [{:message "Unknown column 'foo'"}
                                                     {:message "Syntax error at line 1"}]})
-                           {:native {:query {:sql "SELECT foo"}}}
+                           {:qp/compiled {:query {:sql "SELECT foo"}}}
                            (fn [_ _])))))
   (with-redefs [qp.store/metadata-provider (constantly {:details {}})
                 lib.metadata/database (fn [provider] provider)]
     (try
       (execute/execute-reducible-query
        (fn [_ _] {:exceptions [{:message "Unknown column 'bar'"}]})
-       {:native {:query {:sql "SELECT bar"}}}
+       {:qp/compiled {:query {:sql "SELECT bar"}}}
        (fn [_ _]))
       (is false "expected exception")
       (catch clojure.lang.ExceptionInfo e
@@ -183,7 +180,7 @@
         (try
           (execute/execute-reducible-query
            (fn [_ _] {:exceptions [pinot-exception]})
-           {:native {:query {:sql "SELECT foo"}}}
+           {:qp/compiled {:query {:sql "SELECT foo"}}}
            (fn [_ _]))
           (is false "expected exception")
           (catch clojure.lang.ExceptionInfo e
@@ -203,10 +200,9 @@
 (deftest reduce-results-empty-native-uses-projections
   (testing "When native query has no rows, column names come from schema projections (empty result handling)."
     (let [captured (atom nil)]
-    (with-redefs [annotate/merged-column-info (fn [_ metadata] (:cols metadata))
-                  annotate/base-type-inferer fake-base-type-inferer]
+    (with-redefs [annotate/base-type-inferer fake-base-type-inferer]
       (#'execute/reduce-results
-       {:type :query :native {:mbql? false}}
+       {:type :query :qp/compiled {:mbql? false}}
        {:projections ["a" "b"] :results []}
        (fn [metadata rows]
          (reset! captured {:metadata metadata :rows rows}))))
@@ -220,10 +216,9 @@
 
 (deftest reduce-results-mbql-uses-remove-bonus-keys
   (let [captured (atom nil)]
-    (with-redefs [annotate/merged-column-info (fn [_ metadata] (:cols metadata))
-                  annotate/base-type-inferer fake-base-type-inferer]
+    (with-redefs [annotate/base-type-inferer fake-base-type-inferer]
       (#'execute/reduce-results
-       {:native {:mbql? true}}
+       {:qp/compiled {:mbql? true}}
        {:projections ["id" "___temp" "name"]
         :results [{"id" 1 "___temp" 0 "name" "x"}]}
        (fn [metadata rows]
@@ -232,10 +227,9 @@
 
 (deftest reduce-results-native-no-projections-empty-results
   (let [captured (atom nil)]
-    (with-redefs [annotate/merged-column-info (fn [_ metadata] (:cols metadata))
-                  annotate/base-type-inferer fake-base-type-inferer]
+    (with-redefs [annotate/base-type-inferer fake-base-type-inferer]
       (#'execute/reduce-results
-       {:native {:mbql? false}}
+       {:qp/compiled {:mbql? false}}
        {:projections []
         :results []}
        (fn [metadata rows]

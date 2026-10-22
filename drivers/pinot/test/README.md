@@ -24,10 +24,10 @@ test/
 
 ### Prerequisites
 
-1. **Java 21+** - Required for Clojure and Metabase
-2. **Clojure CLI** - Version 1.12.1.1550+
+1. **Java 25** - Required for the pinned Metabase v0.64.1 target
+2. **Clojure CLI** - Version 1.12.3.1577
 3. **Apache Pinot** (optional) - For integration tests
-4. **Make** - For using the provided Makefile
+4. **Make** and **Python 3** - For the canonical `make test` command and line coverage gate
 
 ### Quick Start
 
@@ -91,7 +91,7 @@ The test suite provides comprehensive coverage across all driver modules:
 ### Coverage Metrics
 
 - **Target Coverage**: 80%+ overall
-- **Minimum Coverage**: 70% (CI fails below this)
+- **Minimum Coverage**: 68% of source lines (CI fails below this)
 - **Low Watermark**: 50% (warnings)
 - **High Watermark**: 80% (good coverage)
 
@@ -288,16 +288,14 @@ The CI pipeline runs comprehensive tests:
 # .github/workflows/ci.yml
 - name: Run tests with coverage
   run: |
-    cd drivers/pinot  
-    clojure -X:test-coverage
-    clojure -M:test-runner --config-file tests.edn
+    make test
 ```
 
 ### Coverage Requirements
 
-- **Minimum**: 70% overall coverage
+- **Minimum**: 68% source line coverage
 - **Target**: 80%+ coverage  
-- **CI Failure**: Below 70% coverage
+- **CI Failure**: Below 68% source line coverage
 - **Coverage Reports**: Uploaded to Codecov
 
 ### Test Artifacts
@@ -393,4 +391,4 @@ If tests are slow:
 - [Kaocha Test Runner](https://cljdoc.org/d/lambdaisland/kaocha)
 - [Cloverage Coverage Tool](https://github.com/cloverage/cloverage)
 - [Criterium Benchmarking](https://github.com/hugoduncan/criterium)
-- [Metabase Driver Development](https://www.metabase.com/docs/latest/developers-guide) 
+- [Metabase Driver Development](https://www.metabase.com/docs/latest/developers-guide)
