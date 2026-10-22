@@ -19,6 +19,14 @@ nav_order: 5
 
 Download the latest release from the [GitHub Releases page](https://github.com/startreedata/metabase-pinot-driver/releases).
 
+See the [maintenance policy](https://github.com/startreedata/metabase-pinot-driver/blob/main/MAINTENANCE.md)
+for upstream release alignment and compatibility requirements. New driver
+versions mirror the target Metabase version: Metabase `v0.64.1` maps to driver
+`v0.64.1`, including artifact `pinot.metabase-driver-v0.64.1.jar` and embedded
+plugin version `0.64.1`. Four-component upstream hotfix versions are mirrored too.
+Release notes must name the exact Metabase versions tested; historical driver
+`v1.x` releases remain available.
+
 Each release includes:
 
 - `pinot.metabase-driver-v{version}.jar` — The driver JAR file
@@ -36,7 +44,7 @@ Each release includes:
 
    | Parameter | Description |
    |:----------|:------------|
-   | Version | Semantic version (e.g., `1.0.0`, `1.0.0-alpha.1`) |
+   | Version | Target Metabase version without `v` (e.g., `0.64.1`, `0.64.1.1`, `0.65.0-beta`) |
    | Commit SHA | Full commit SHA to release from |
    | Prerelease | Check if this is a prerelease |
 
@@ -44,10 +52,10 @@ Each release includes:
 
 ```bash
 # Basic release
-./scripts/release.sh 1.0.0 abc123def456...
+./scripts/release.sh 0.64.1 abc123def456...
 
 # Prerelease
-./scripts/release.sh --prerelease 1.0.0-alpha.1 abc123def456...
+./scripts/release.sh --prerelease 0.65.0-beta abc123def456...
 
 # Get help
 ./scripts/release.sh --help
@@ -60,11 +68,11 @@ The release script requires [GitHub CLI](https://cli.github.com/) installed and 
 
 The automated release workflow will:
 
-1. Validate the version format and commit SHA
-2. Build the Pinot driver JAR
-3. Create release artifacts with checksums
-4. Generate release notes
-5. Create a GitHub release with the artifacts attached
+1. Validate the source commit and require the release version to match pinned Metabase
+2. Require successful CI for that exact commit and reject an existing release or tag
+3. Build the driver with Java 25 and the Clojure version in `app_versions.json`
+4. Smoke test that same JAR against pinned Pinot in the build Metabase version and every `metabase_compatibility` version from `app_versions.json`, retaining separate runtime evidence even on failure
+5. Verify every runtime passed with the same JAR digest and expected version, then publish that JAR with its checksum and all tested versions in the release notes
 
 ## Installing a Release
 

@@ -175,7 +175,7 @@ This project uses GitHub Actions for automated releases. There are two ways to c
 2. Select the "Release" workflow
 3. Click "Run workflow"
 4. Fill in the required parameters:
-   - **Version**: Target Metabase version without `v` (e.g., `0.64.1`, `0.64.1.1`, `0.65.0-RC1`)
+   - **Version**: Matching Metabase release number without `v` (e.g., `0.64.1`, `0.64.1.1`, `0.64.1-rc.1`)
    - **Commit SHA**: The full commit SHA to release from
    - **Prerelease**: Check if this is a prerelease
 
@@ -184,11 +184,14 @@ This project uses GitHub Actions for automated releases. There are two ways to c
 Use the provided release script for a more convenient CLI experience:
 
 ```bash
-# Basic release
+# Release matching Metabase v0.64.1
 ./scripts/release.sh 0.64.1 abc123def456...
 
+# Release matching a four-component Metabase version
+./scripts/release.sh 0.64.1.1 abc123def456...
+
 # Prerelease
-./scripts/release.sh --prerelease 0.65.0-RC1 abc123def456...
+./scripts/release.sh --prerelease 0.64.1-rc.1 abc123def456...
 
 # Get help
 ./scripts/release.sh --help
@@ -201,11 +204,11 @@ Use the provided release script for a more convenient CLI experience:
 ### Release Process
 
 The release workflow will:
-1. Validate the version format and commit SHA
-2. Build the Pinot driver JAR
-3. Create release artifacts with checksums
-4. Generate release notes
-5. Create a GitHub release with the artifacts attached
+1. Validate the source commit and require the release version to match pinned Metabase
+2. Require successful CI for that exact commit and reject an existing release or tag
+3. Build the driver with Java 25 and the Clojure version in `app_versions.json`
+4. Smoke test that same JAR against pinned Pinot in the build Metabase version and every `metabase_compatibility` version from `app_versions.json`, retaining separate runtime evidence even on failure
+5. Verify every runtime passed with the same JAR digest and expected version, then publish that JAR with its checksum and all tested versions in the release notes
 
 ### Release Artifacts
 
