@@ -354,16 +354,53 @@ jobs:
       uses: actions/cache/restore@v5
       with:
         path: drivers/pinot/target/nvd-data
-        key: ${{ runner.os }}-nvd-v1-${{ hashFiles('drivers/pinot/deps.edn', 'drivers/pinot/nvd-clojure.edn', 'drivers/pinot/nvd_suppressions.xml') }}-${{ github.run_id }}-${{ github.run_attempt }}
+        key: ${{ runner.os }}-nvd-v1-${{ hashFiles('drivers/pinot/deps.edn', 'drivers/pinot/nvd-clojure.edn', 'drivers/pinot/nvd_suppressions.xml', 'scripts/bootstrap-nvd.clj', '.github/workflows/ci.yml') }}-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
-          ${{ runner.os }}-nvd-v1-${{ hashFiles('drivers/pinot/deps.edn', 'drivers/pinot/nvd-clojure.edn', 'drivers/pinot/nvd_suppressions.xml') }}-
+          ${{ runner.os }}-nvd-v1-${{ hashFiles('drivers/pinot/deps.edn', 'drivers/pinot/nvd-clojure.edn', 'drivers/pinot/nvd_suppressions.xml', 'scripts/bootstrap-nvd.clj', '.github/workflows/ci.yml') }}-
 
-    - name: Run security scan
+    - name: Bootstrap NVD on a cold cache
+      shell: bash
+      run: |
+        cd drivers/pinot
+        mkdir -p target
+        tool_classpath=$(clojure -Spath -M:security-scan)
+        java -cp "$tool_classpath" clojure.main ../../scripts/bootstrap-nvd.clj 2>&1 | tee target/nvd-bootstrap.log
+        # The pinned engine can log per-CVE ingestion failures and still exit zero.
+        if grep -q 'Failed to process CVE-' target/nvd-bootstrap.log; then
+          echo "NVD bootstrap omitted CVE data; refusing to scan or cache an incomplete database"
+          exit 1
+        fi
+
+    - name: Run security scan with a fresh NIST API delta
+      shell: bash
       env:
         NVD_API_TOKEN: ${{ secrets.NVD_API_KEY }}
       run: |
         cd drivers/pinot
-        clojure -J-Dnvd.api.key="$NVD_API_TOKEN" -M:security-scan nvd-clojure.edn $(clojure -Spath -M:security-scan-cp)
+        scan_classpath=$(clojure -Spath -M:security-scan-cp)
+        date -u +%s > target/nvd-api-started-at.txt
+        clojure -J-Dnvd.api.key="$NVD_API_TOKEN" -M:security-scan nvd-clojure.edn "$scan_classpath" 2>&1 | tee target/nvd-api-scan.log
+        if grep -q 'Failed to process CVE-' target/nvd-api-scan.log; then
+          echo "NVD API update omitted CVE data; refusing to cache an incomplete database"
+          exit 1
+        fi
+        python3 - <<'PY'
+        import json
+        from datetime import datetime, timezone
+        from pathlib import Path
+
+        report = json.loads(Path("target/nvd/dependency-check-report.json").read_text())
+        sources = {item["name"]: item["timestamp"] for item in report["scanInfo"]["dataSource"]}
+        def epoch(name):
+            return int(datetime.fromisoformat(sources[name].replace("Z", "+00:00")).timestamp())
+        started = int(Path("target/nvd-api-started-at.txt").read_text())
+        boundary = int(Path("target/nvd-boundary.txt").read_text())
+        now = int(datetime.now(timezone.utc).timestamp())
+        if not (started <= epoch("NVD API Last Checked") <= now
+                and boundary <= epoch("NVD API Last Modified") <= now):
+            raise SystemExit("NVD report does not prove a fresh API delta from the bootstrap/cache boundary")
+        print("Verified fresh NIST API update and completed dependency analysis")
+        PY
 
     - name: Save updated NVD database
       if: success()

@@ -13,6 +13,8 @@
  :suppression-file "nvd_suppressions.xml"
  :data-directory "target/nvd-data"
  :nvd-api {:key "env:NVD_API_TOKEN"
+           ;; A bulk seed sets last-checked; always require a fresh NIST API delta.
+           :valid-for-hours 0
            ;; Be gentle with the NVD API to avoid rate limits.
            :delay 6000}
 
