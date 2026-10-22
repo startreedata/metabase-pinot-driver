@@ -11,6 +11,7 @@
 {;; You can use the `:suppression-file` in order to silence false positives.
  ;; This file will be automatically created, with whatever filename is specified here, if it didn't exist already.
  :suppression-file "nvd_suppressions.xml"
+ :data-directory "target/nvd-data"
  :nvd-api {:key "env:NVD_API_TOKEN"
            ;; Be gentle with the NVD API to avoid rate limits.
            :delay 6000}

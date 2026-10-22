@@ -326,6 +326,8 @@ jobs:
     # Secrets are not available for PRs from forks; only run when secrets can be read.
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     runs-on: ubuntu-latest
+    # Allow a cold NVD bootstrap and indexing, but bound prolonged upstream retries.
+    timeout-minutes: 240
     
     steps:
     - name: Checkout code
@@ -347,9 +349,25 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-clojure-
 
+    - name: Restore NVD database
+      id: nvd-cache
+      uses: actions/cache/restore@v5
+      with:
+        path: drivers/pinot/target/nvd-data
+        key: ${{ runner.os }}-nvd-v1-${{ hashFiles('drivers/pinot/deps.edn', 'drivers/pinot/nvd-clojure.edn', 'drivers/pinot/nvd_suppressions.xml') }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          ${{ runner.os }}-nvd-v1-${{ hashFiles('drivers/pinot/deps.edn', 'drivers/pinot/nvd-clojure.edn', 'drivers/pinot/nvd_suppressions.xml') }}-
+
     - name: Run security scan
       env:
         NVD_API_TOKEN: ${{ secrets.NVD_API_KEY }}
       run: |
         cd drivers/pinot
         clojure -J-Dnvd.api.key="$NVD_API_TOKEN" -M:security-scan nvd-clojure.edn $(clojure -Spath -M:security-scan-cp)
+
+    - name: Save updated NVD database
+      if: success()
+      uses: actions/cache/save@v5
+      with:
+        path: drivers/pinot/target/nvd-data
+        key: ${{ steps.nvd-cache.outputs.cache-primary-key }}
