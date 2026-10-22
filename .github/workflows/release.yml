@@ -60,6 +60,7 @@ jobs:
         fi
 
         metabase_version=$(jq -er '.metabase | select(type == "string" and length > 0)' app_versions.json)
+        metabase_versions=$(jq -ce '[.metabase] + (.metabase_compatibility // []) | unique | select(all(.[]; type == "string" and test("^v[0-9]+([.][0-9]+){2,3}(-[a-zA-Z0-9.-]+)?$")))' app_versions.json)
         pinot_version=$(jq -er '.pinot | select(type == "string" and length > 0)' app_versions.json)
         clojure_version=$(jq -er '.clojure | select(type == "string" and length > 0)' app_versions.json)
         if [[ "$metabase_version" != "v$RELEASE_VERSION" ]]; then
@@ -67,8 +68,8 @@ jobs:
           exit 1
         fi
         test -f scripts/smoke-test.py
-        printf 'commit_sha=%s\nmetabase_version=%s\npinot_version=%s\nclojure_version=%s\n' \
-          "$source_commit" "$metabase_version" "$pinot_version" "$clojure_version" >> "$GITHUB_OUTPUT"
+        printf 'commit_sha=%s\nmetabase_version=%s\nmetabase_versions=%s\npinot_version=%s\nclojure_version=%s\n' \
+          "$source_commit" "$metabase_version" "$metabase_versions" "$pinot_version" "$clojure_version" >> "$GITHUB_OUTPUT"
         
         echo "✅ All inputs validated successfully"
 
@@ -136,18 +137,31 @@ jobs:
         make driver
         test -s metabase/resources/modules/pinot.metabase-driver.jar
 
-    - name: Smoke test the release JAR in pinned Metabase
+    - name: Smoke test the release JAR in all configured Metabase versions
       env:
-        METABASE_VERSION: ${{ steps.validate.outputs.metabase_version }}
+        METABASE_VERSIONS: ${{ steps.validate.outputs.metabase_versions }}
       run: |
-        mkdir -p target/runtime
-        curl --fail --location --retry 3 \
-          "https://downloads.metabase.com/$METABASE_VERSION/metabase.jar" \
-          --output target/runtime/metabase.jar
-        python3 scripts/smoke-test.py \
-          --driver-jar metabase/resources/modules/pinot.metabase-driver.jar \
-          --metabase-jar target/runtime/metabase.jar \
-          --output-dir target/smoke
+        mkdir -p target/runtime target/release-validation
+        jq -r '.[]' <<< "$METABASE_VERSIONS" > target/release-validation/metabase-versions.txt
+        failed=0
+        while IFS= read -r metabase_version; do
+          echo "Smoke testing Metabase $metabase_version"
+          mkdir -p "target/runtime/$metabase_version"
+          if ! curl --fail --location --retry 3 \
+            "https://downloads.metabase.com/$metabase_version/metabase.jar" \
+            --output "target/runtime/$metabase_version/metabase.jar"; then
+            failed=1
+            continue
+          fi
+          if ! python3 scripts/smoke-test.py \
+            --driver-jar metabase/resources/modules/pinot.metabase-driver.jar \
+            --metabase-jar "target/runtime/$metabase_version/metabase.jar" \
+            --metabase-version "$metabase_version" \
+            --output-dir "target/smoke/$metabase_version"; then
+            failed=1
+          fi
+        done < target/release-validation/metabase-versions.txt
+        exit "$failed"
 
     - name: Upload release validation evidence
       uses: actions/upload-artifact@v7
@@ -163,13 +177,19 @@ jobs:
       env:
         SOURCE_COMMIT: ${{ steps.validate.outputs.commit_sha }}
         METABASE_VERSION: ${{ steps.validate.outputs.metabase_version }}
+        METABASE_VERSIONS: ${{ steps.validate.outputs.metabase_versions }}
         PINOT_VERSION: ${{ steps.validate.outputs.pinot_version }}
         CI_URL: ${{ steps.gates.outputs.ci_url }}
       run: |
         echo "=== Preparing release artifacts ==="
         mkdir -p release-artifacts
         driver_sha256=$(sha256sum metabase/resources/modules/pinot.metabase-driver.jar | cut -d ' ' -f1)
-        jq -e --arg sha "$driver_sha256" '.status == "passed" and .driver_sha256 == $sha' target/smoke/evidence.json
+        jq -r '.[]' <<< "$METABASE_VERSIONS" | while IFS= read -r metabase_version; do
+          jq -e --arg sha "$driver_sha256" --arg version "$metabase_version" --arg driver_version "$RELEASE_VERSION" \
+            '.status == "passed" and .driver_sha256 == $sha and .metabase.tag == $version and .driver_version == $driver_version' \
+            "target/smoke/$metabase_version/evidence.json"
+        done
+        metabase_versions_tested=$(jq -r 'join(", ")' <<< "$METABASE_VERSIONS")
         
         # Copy driver JAR with versioned name
         cp metabase/resources/modules/pinot.metabase-driver.jar "release-artifacts/pinot.metabase-driver-v$RELEASE_VERSION.jar"
@@ -198,7 +218,8 @@ jobs:
         - **Version**: v$RELEASE_VERSION
         - **Commit**: $SOURCE_COMMIT
         - **Built**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-        - **Metabase Version Tested**: $METABASE_VERSION
+        - **Build Metabase Version**: $METABASE_VERSION
+        - **Metabase Versions Tested**: $metabase_versions_tested
         - **Pinot Version Tested**: $PINOT_VERSION
         - **Successful CI**: $CI_URL
         - **Runtime Evidence**: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID

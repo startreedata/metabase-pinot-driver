@@ -184,8 +184,8 @@ The release workflow will:
 1. Validate the source commit and require the release version to match pinned Metabase
 2. Require successful CI for that exact commit and reject an existing release or tag
 3. Build the driver with Java 25 and the Clojure version in `app_versions.json`
-4. Smoke test that JAR in the official pinned Metabase against pinned Pinot, retaining runtime evidence even on failure
-5. Verify the tested JAR's digest, then publish that same JAR with its checksum and tested versions in the release notes
+4. Smoke test that same JAR against pinned Pinot in the build Metabase version and every `metabase_compatibility` version from `app_versions.json`, retaining separate runtime evidence even on failure
+5. Verify every runtime passed with the same JAR digest and expected version, then publish that JAR with its checksum and all tested versions in the release notes
 
 ### Release Artifacts
 
