@@ -20,9 +20,12 @@ nav_order: 5
 Download the latest release from the [GitHub Releases page](https://github.com/startreedata/metabase-pinot-driver/releases).
 
 See the [maintenance policy](https://github.com/startreedata/metabase-pinot-driver/blob/main/MAINTENANCE.md)
-for upstream release alignment and compatibility requirements. Driver versions
-use independent semantic versioning; release notes must name the exact Metabase
-versions tested.
+for upstream release alignment and compatibility requirements. New driver
+versions mirror the target Metabase version: Metabase `v0.64.1` maps to driver
+`v0.64.1`, including artifact `pinot.metabase-driver-v0.64.1.jar` and embedded
+plugin version `0.64.1`. Four-component upstream hotfix versions are mirrored too.
+Release notes must name the exact Metabase versions tested; historical driver
+`v1.x` releases remain available.
 
 Each release includes:
 
@@ -41,7 +44,7 @@ Each release includes:
 
    | Parameter | Description |
    |:----------|:------------|
-   | Version | Semantic version (e.g., `1.0.0`, `1.0.0-alpha.1`) |
+   | Version | Target Metabase version without `v` (e.g., `0.64.1`, `0.64.1.1`, `0.65.0-beta`) |
    | Commit SHA | Full commit SHA to release from |
    | Prerelease | Check if this is a prerelease |
 
@@ -49,10 +52,10 @@ Each release includes:
 
 ```bash
 # Basic release
-./scripts/release.sh 1.0.0 abc123def456...
+./scripts/release.sh 0.64.1 abc123def456...
 
 # Prerelease
-./scripts/release.sh --prerelease 1.0.0-alpha.1 abc123def456...
+./scripts/release.sh --prerelease 0.65.0-beta abc123def456...
 
 # Get help
 ./scripts/release.sh --help

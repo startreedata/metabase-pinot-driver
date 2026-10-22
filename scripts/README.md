@@ -1,6 +1,6 @@
-# Pinot Quickstart Scripts
+# Pinot Driver Scripts
 
-This directory contains scripts to easily start and stop an Apache Pinot cluster locally for testing and development.
+This directory contains scripts to start and stop an Apache Pinot cluster locally and release the Metabase Pinot driver.
 
 ## Scripts
 
@@ -39,6 +39,16 @@ Stops the running Pinot cluster processes.
 **Usage:**
 ```bash
 ./scripts/stop-pinot-quickstart.sh
+```
+
+### release.sh
+
+Triggers the GitHub release workflow using an authenticated GitHub CLI. New driver versions mirror the compatible Metabase release number without its leading `v`; three or four numeric components and an optional prerelease suffix are supported.
+
+```bash
+./scripts/release.sh 0.64.1 abc123def456...
+./scripts/release.sh 0.64.1.1 abc123def456...
+./scripts/release.sh --prerelease 0.64.1-rc.1 abc123def456...
 ```
 
 ## Access Points

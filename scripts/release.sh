@@ -37,7 +37,7 @@ Usage: $0 [OPTIONS] <version> <commit_sha>
 Creates a GitHub release for the Pinot driver.
 
 Arguments:
-  version     Release version in semver format (e.g., 1.0.0, 1.0.0-alpha.1)
+  version     Metabase release version without v (e.g., 0.64.1, 0.64.1.1)
   commit_sha  Full commit SHA to release from
 
 Options:
@@ -45,8 +45,9 @@ Options:
   -h, --help         Show this help message
 
 Examples:
-  $0 1.0.0 abc123def456...
-  $0 --prerelease 1.0.0-alpha.1 abc123def456...
+  $0 0.64.1 abc123def456...
+  $0 0.64.1.1 abc123def456...
+  $0 --prerelease 0.64.1-rc.1 abc123def456...
 
 Note: This script requires GitHub CLI (gh) to be installed and authenticated.
 EOF
@@ -55,9 +56,9 @@ EOF
 # Function to validate version format
 validate_version() {
     local version=$1
-    if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+    if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9.-]+)?$ ]]; then
         print_error "Invalid version format: $version"
-        print_info "Expected semver format (e.g., 1.0.0 or 1.0.0-alpha.1)"
+        print_info "Expected 3 or 4 numeric components with an optional prerelease suffix (e.g., 0.64.1, 0.64.1.1, or 0.64.1-rc.1)"
         return 1
     fi
     return 0

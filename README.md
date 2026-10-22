@@ -144,13 +144,15 @@ The following behaviors were manually verified for **variable substitution** (SQ
 
 This project uses GitHub Actions for automated releases. There are two ways to create a release:
 
+New driver releases mirror the compatible Metabase release number without its leading `v` (for example, `0.64.1` or `0.64.1.1`). Prerelease suffixes are supported. Existing driver releases retain their versions.
+
 #### 1. Using GitHub Actions (Recommended)
 
 1. Go to the [Actions tab](https://github.com/startreedata/metabase-pinot-driver/actions)
 2. Select the "Release" workflow
 3. Click "Run workflow"
 4. Fill in the required parameters:
-   - **Version**: Semantic version (e.g., `1.0.0`, `1.0.0-alpha.1`)
+   - **Version**: Matching Metabase release number without `v` (e.g., `0.64.1`, `0.64.1.1`, `0.64.1-rc.1`)
    - **Commit SHA**: The full commit SHA to release from
    - **Prerelease**: Check if this is a prerelease
 
@@ -159,11 +161,14 @@ This project uses GitHub Actions for automated releases. There are two ways to c
 Use the provided release script for a more convenient CLI experience:
 
 ```bash
-# Basic release
-./scripts/release.sh 1.0.0 abc123def456...
+# Release matching Metabase v0.64.1
+./scripts/release.sh 0.64.1 abc123def456...
+
+# Release matching a four-component Metabase version
+./scripts/release.sh 0.64.1.1 abc123def456...
 
 # Prerelease
-./scripts/release.sh --prerelease 1.0.0-alpha.1 abc123def456...
+./scripts/release.sh --prerelease 0.64.1-rc.1 abc123def456...
 
 # Get help
 ./scripts/release.sh --help

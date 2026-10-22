@@ -8,9 +8,12 @@ implementation tasks, compatibility validation, and driver publication.
 - Check Metabase releases daily at 09:00 America/Los_Angeles. A new stable
   release starts compatibility validation; aim to publish the matching driver
   in the next daily cycle once validation passes.
-- Keep the driver's independent semantic versioning. Record the exact Metabase
-  versions tested in every release rather than implying compatibility from the
-  driver version alone.
+- Mirror the target Metabase version in the driver tag, artifact filename, and
+  embedded plugin version: Metabase `v0.64.1` maps to driver `v0.64.1` with plugin
+  version `0.64.1`. Mirror upstream hotfix versions such as `v0.64.1.1` as well.
+  Record the exact versions tested; matching version numbers are not proof of
+  compatibility. Preserve historical driver `v1.x` releases and explicitly mark
+  the first mirrored stable release as latest.
 - Prioritize the current stable Metabase line. Evaluate the previous supported
   line and LTS separately; promise support only after each has passed validation.
   Treat upstream previews as early compatibility warnings.
