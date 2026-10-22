@@ -2,12 +2,14 @@
 
 # Set the Pinot version
 if [ -z "${PINOT_VERSION}" ]; then
-  echo "PINOT_VERSION is not set. Using default version 1.3.0"
-  PINOT_VERSION="1.3.0"
+  SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  PINOT_VERSION="$(jq -er '.pinot' "${SCRIPT_DIR}/../app_versions.json")" || exit 1
+  echo "PINOT_VERSION is not set. Using pinned version ${PINOT_VERSION}"
 fi
 
 # Set the download URL
-DOWNLOAD_URL="https://archive.apache.org/dist/pinot/apache-pinot-${PINOT_VERSION}/apache-pinot-${PINOT_VERSION}-bin.tar.gz"
+DOWNLOAD_URL="https://downloads.apache.org/pinot/apache-pinot-${PINOT_VERSION}/apache-pinot-${PINOT_VERSION}-bin.tar.gz"
+ARCHIVE_DOWNLOAD_URL="https://archive.apache.org/dist/pinot/apache-pinot-${PINOT_VERSION}/apache-pinot-${PINOT_VERSION}-bin.tar.gz"
 
 # Set the destination directory
 if [ -z "${PINOT_HOME}" ]; then
@@ -29,7 +31,9 @@ if [ -d "${PINOT_HOME}/apache-pinot-${PINOT_VERSION}-bin" ]; then
     echo "Pinot package already exists in ${PINOT_HOME}/apache-pinot-${PINOT_VERSION}-bin"
 else
     # Download the Pinot package
-    curl  --parallel -L "${DOWNLOAD_URL}" -o "${PINOT_HOME}/apache-pinot-${PINOT_VERSION}-bin.tar.gz"
+    if ! curl --fail --location --retry 3 --connect-timeout 30 "${DOWNLOAD_URL}" -o "${PINOT_HOME}/apache-pinot-${PINOT_VERSION}-bin.tar.gz"; then
+        curl --fail --location --retry 3 --connect-timeout 30 "${ARCHIVE_DOWNLOAD_URL}" -o "${PINOT_HOME}/apache-pinot-${PINOT_VERSION}-bin.tar.gz" || exit 1
+    fi
 
     # Extract the downloaded package
     tar -xzf "${PINOT_HOME}/apache-pinot-${PINOT_VERSION}-bin.tar.gz" -C "${PINOT_HOME}"

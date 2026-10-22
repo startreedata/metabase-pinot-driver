@@ -99,7 +99,7 @@
 
 (defn reduce-results
   "Reduce query results to metadata and rows. Public for testing (e.g. empty result handling)."
-  [{{:keys [mbql?]} :native, :as outer-query} {:keys [projections], :as result} respond]
+  [{{:keys [mbql?]} :qp/compiled} {:keys [projections], :as result} respond]
   (let [columns (or (not-empty projections)
                     (some-> result :results first keys not-empty))
         col-names (if mbql?
@@ -115,9 +115,7 @@
                             (vec projections)
                             []))))
         metadata (result-metadata col-names)
-        annotate-col-names (->> (annotate/merged-column-info outer-query metadata)
-                                (map (comp keyword :name)))
-        rows (result-rows result col-names annotate-col-names)
+        rows (result-rows result col-names col-names)
         base-types (transduce identity (annotate/base-type-inferer metadata) rows)
         updated-metadata (update metadata :cols (fn [cols]
                                                   (map (fn [col base-type]
@@ -128,7 +126,7 @@
 
 (defn execute-reducible-query
   "Execute a query for a Pinot DB."
-  [execute* {{:keys [query]} :native :as mbql-query} respond]
+  [execute* {{:keys [query]} :qp/compiled :as mbql-query} respond]
   {:pre [query]}
   (log/debugf "*** PINOT EXECUTE: execute-reducible-query called with mbql-query: %s" (u/pprint-to-str mbql-query))
   (let [details    (:details (lib.metadata/database (qp.store/metadata-provider)))

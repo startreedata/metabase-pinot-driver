@@ -56,9 +56,49 @@ make test
 
 This will:
 
-1. Start a Pinot instance (if not already running)
+1. Clone the pinned Metabase source (if not already present)
 2. Link the driver to Metabase
-3. Run the test suite with coverage reporting
+3. Run the existing driver tests once with coverage reporting
+
+These tests use mocked Pinot responses.
+
+`make test` requires Python 3 and enforces 68% line coverage. Form coverage is reported separately because upstream logging macro expansion changes its denominator between Metabase versions.
+
+## Packaged Driver Compatibility
+
+After `make driver`, exercise the JAR in the exact Metabase version pinned in
+`app_versions.json`. Java 25, Python 3.9+, the official Metabase JAR, and a running
+Pinot quickstart with the `baseballStats` table are required:
+
+```bash
+python3 scripts/smoke-test.py \
+  --driver-jar metabase/resources/modules/pinot.metabase-driver.jar \
+  --metabase-jar /path/to/metabase.jar \
+  --controller-url http://localhost:9000 \
+  --output-dir target/smoke
+```
+
+The command starts a disposable Metabase application, loads the packaged plugin,
+connects to Pinot, syncs its schema, and compares native SQL, MBQL, aggregations,
+and native parameter results with direct Pinot queries. It stops its application
+and removes its temporary database on exit. Query responses, version information,
+artifact hashes, and logs remain in the output directory. CI runs this gate against
+the pinned Pinot quickstart before reporting compatibility. It builds one driver
+artifact, runs the unit suite once, and reuses that artifact for the deduplicated
+Metabase build pin plus the optional `metabase_compatibility` array in
+`app_versions.json`.
+
+To check the declared v0.63.20 compatibility runtime, use its official Metabase JAR
+and add `--metabase-version v0.63.20`. This selects only the runtime: the driver
+manifest must still match the v0.64.1 source build pin, so no JAR relabeling is needed.
+
+The gate verifies the Pinot runtime version against `app_versions.json` (currently
+1.5.1). To check another concrete release, pass `--pinot-version`, for example
+`--pinot-version 1.5.0` when that release is running at the supplied controller URL.
+
+The driver accepts Metabase's MBQL 5 input through its legacy-query conversion API
+and retains the Pinot SQL compiler. Native parameters use the current stage-based
+hook; execution reads the compiled query from `:qp/compiled`.
 
 ## Security Scan
 

@@ -65,12 +65,14 @@ endif
 
 front_end:
 	@echo "Building Front End..."
-	cd $(makefile_dir)metabase && yarn build-static-viz && \
-	export WEBPACK_BUNDLE=production && yarn build-release && yarn build-static-viz
+	cd $(makefile_dir)metabase && bun install --frozen-lockfile && \
+	bun run build-release && bun run build-release:static-viz
 
-driver: update_deps_files
+driver: clone_metabase_if_missing link_to_driver update_deps_files
 	@echo "Building Pinot driver..."
-	cd $(makefile_dir)metabase/; ./bin/build-driver.sh pinot
+	cd $(makefile_dir)metabase && clojure \
+		-Sdeps '{:aliases {:pinot {:extra-paths ["modules/drivers/pinot/src" "modules/drivers/pinot/resources"]}}}' \
+		-X:build:pinot:build/driver :driver :pinot :edition :oss
 
 server: 
 	@echo "Starting metabase..."
@@ -83,7 +85,7 @@ update_deps_files:
 			echo "Metabase deps file updated, skipping..."; \
 		else \
 			echo "Updating metabase deps file..."; \
-			cd $(makefile_dir)metabase/; sed -i.bak 's/\/test\"\]\}/\/test\" \"modules\/drivers\/pinot\/test\"\]\}/g' deps.edn; \
+			cd $(makefile_dir)metabase/; sed -i.bak '/^  :drivers-dev/,/^;;; Linters/s/"modules\/drivers\/vertica\/test"\]/"modules\/drivers\/vertica\/test" "modules\/drivers\/pinot\/test"\]/' deps.edn; \
 	fi
 
 	@if cd $(makefile_dir)metabase/modules/drivers && grep -q pinot deps.edn; \
@@ -94,11 +96,18 @@ update_deps_files:
 			cd $(makefile_dir)metabase/modules/drivers/; sed -i.bak "s/\}\}\}/\} \metabase\/pinot \{:local\/root \"pinot\"\}\}\}/g" deps.edn; \
 	fi
 
-test: start_pinot_if_missing link_to_driver update_deps_files
+test: clone_metabase_if_missing link_to_driver update_deps_files
 	@echo "Testing Pinot driver..."
-	cd $(makefile_dir)metabase/; DRIVERS=pinot MB_PINOT_TEST_PORT=$(pinot_port) clojure -X:dev:drivers:drivers-dev:test
+	cd $(makefile_dir)metabase && clojure \
+		-Sdeps '{:aliases {:pinot-test {:extra-paths ["modules/drivers/pinot/src" "modules/drivers/pinot/resources" "modules/drivers/pinot/test"]}}}' \
+		-M:dev:pinot-test:test -m cloverage.coverage \
+		--src-ns-path modules/drivers/pinot/src --test-ns-path modules/drivers/pinot/test \
+		--output ../drivers/pinot/target/coverage --html --codecov --junit \
+		--low-watermark 50 --high-watermark 80
+	# Upstream logging macros change form counts; enforce the existing 68% gate on source lines.
+	python3 -c 'import json, sys; coverage = json.load(open("drivers/pinot/target/coverage/codecov.json"))["coverage"]; hits = [hit for values in coverage.values() for hit in values if hit is not None]; percent = 100 * sum(hit > 0 for hit in hits) / len(hits) if hits else 0; print(f"Line coverage: {percent:.2f}% (minimum: 68%)"); sys.exit(percent < 68)'
 
 build: clone_metabase_if_missing update_deps_files link_to_driver front_end driver
 
 docker-image:
-	cd $(makefile_dir)metabase/; export MB_EDITION=ee && ./bin/build.sh && mv target/uberjar/metabase.jar bin/docker/ && docker build -t metabase-dev --build-arg MB_EDITION=ee ./bin/docker/ 
+	cd $(makefile_dir)metabase/; export MB_EDITION=ee && ./bin/build.sh && mv target/uberjar/metabase.jar bin/docker/ && docker build -t metabase-dev --build-arg MB_EDITION=ee ./bin/docker/

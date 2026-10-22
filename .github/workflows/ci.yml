@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   test:
+    needs: build
     runs-on: ubuntu-latest
     if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true) }}
     permissions:
@@ -21,21 +22,29 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v6
 
-    - name: Start Pinot
-      run: |
-        chmod +x scripts/start-pinot-quickstart.sh
-        ./scripts/start-pinot-quickstart.sh
-
-    - name: Set up Java 21
+    - name: Set up Java 21 for Pinot
       uses: actions/setup-java@v5
       with:
         java-version: '21'
         distribution: 'temurin'
 
+    - name: Start Pinot
+      run: |
+        chmod +x scripts/start-pinot-quickstart.sh
+        PINOT_VERSION="$(jq -er '.pinot' app_versions.json)"
+        export PINOT_VERSION
+        ./scripts/start-pinot-quickstart.sh
+
+    - name: Set up Java 25
+      uses: actions/setup-java@v5
+      with:
+        java-version: '25'
+        distribution: 'temurin'
+
     - name: Setup Clojure
       uses: DeLaGuardo/setup-clojure@13.6.1
       with:
-        cli: 1.12.1.1550
+        cli: 1.12.3.1577
 
     - name: Cache Clojure dependencies
       uses: actions/cache@v5
@@ -58,61 +67,29 @@ jobs:
           echo "Metabase directory found"
         fi
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v6
+    - name: Download packaged driver
+      uses: actions/download-artifact@v8
       with:
-        node-version: '22'
-        cache: 'yarn'
-        cache-dependency-path: 'metabase/yarn.lock'
-
-    - name: Install Node.js dependencies
-      run: |
-        # Use yarn instead of npm since metabase uses yarn
-        if [ -f "metabase/yarn.lock" ]; then
-          cd metabase && yarn install
-        else
-          echo "No yarn.lock found, skipping yarn install"
-        fi
-
-    - name: Setup driver and build
-      run: |
-        echo "=== Checking driver setup ==="
-        if [ ! -L "metabase/modules/drivers/pinot" ]; then
-          echo "Driver symlink not found, creating..."
-          make link_to_driver
-        else
-          echo "Driver symlink found"
-        fi
-        
-        echo "=== Updating deps files ==="
-        make update_deps_files
-        
-        echo "=== Building frontend ==="
-        make front_end
-        
-        echo "=== Building driver ==="
-        cd metabase
-        # Ensure metabase core is available on classpath by including dev alias
-        # The :dev alias includes core source paths needed for metabase.util.ssh
-        clojure -X:dev:build:drivers:build/driver :driver :pinot :edition :oss
+        name: pinot-driver
+        path: metabase/resources/modules
 
     - name: Run tests with coverage
+      run: make test
+
+    - name: Smoke test the packaged driver in supported Metabase runtimes
       run: |
-        echo "=== Running Pinot driver tests with coverage ==="
-        cd drivers/pinot
-        
-        # Run unit tests with coverage
-        echo "Running unit tests with coverage..."
-        clojure -X:test-coverage
-        
-        # Generate coverage report
-        echo "Generating coverage reports..."
-        
-        # Also run using kaocha for better test reporting
-        echo "Running tests with kaocha..."
-        clojure -M:test-runner --config-file tests.edn --reporter kaocha.report/documentation
-        
-        echo "=== Test execution completed ==="
+        metabase_versions=$(jq -er '([.metabase] + (.metabase_compatibility // [])) | unique[]' app_versions.json)
+        while IFS= read -r metabase_version; do
+          mkdir -p "target/runtime/${metabase_version}"
+          curl --fail --location --retry 3 \
+            "https://downloads.metabase.com/${metabase_version}/metabase.jar" \
+            --output "target/runtime/${metabase_version}/metabase.jar"
+          python3 scripts/smoke-test.py \
+            --driver-jar metabase/resources/modules/pinot.metabase-driver.jar \
+            --metabase-jar "target/runtime/${metabase_version}/metabase.jar" \
+            --metabase-version "${metabase_version}" \
+            --output-dir "target/smoke/${metabase_version}"
+        done <<< "$metabase_versions"
 
     - name: Upload test results and coverage
       uses: actions/upload-artifact@v7
@@ -124,6 +101,7 @@ jobs:
           drivers/pinot/target/test-results/
           metabase/test-results/
           metabase/coverage/
+          target/smoke/
         retention-days: 30
 
     - name: Upload coverage to Codecov
@@ -203,7 +181,7 @@ jobs:
     - name: Setup Clojure
       uses: DeLaGuardo/setup-clojure@13.6.1
       with:
-        cli: 1.12.1.1550
+        cli: 1.12.3.1577
 
     - name: Cache dependencies
       uses: actions/cache@v5
@@ -229,16 +207,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v6
     
-    - name: Set up Java 21
+    - name: Set up Java 25
       uses: actions/setup-java@v5
       with:
-        java-version: '21'
+        java-version: '25'
         distribution: 'temurin'
     
     - name: Set up Clojure CLI
       uses: DeLaGuardo/setup-clojure@13.6.1
       with:
-        cli: 1.12.1.1550
+        cli: 1.12.3.1577
     
     - name: Cache Clojure dependencies
       uses: actions/cache@v5
@@ -260,47 +238,10 @@ jobs:
           echo "Metabase directory found"
         fi
     
-    - name: Set up Node.js
-      uses: actions/setup-node@v6
-      with:
-        node-version: '22'
-        cache: 'yarn'
-        cache-dependency-path: 'metabase/yarn.lock'
-    
-    - name: Install Node.js dependencies
+    - name: Build driver
       run: |
-        # Use yarn instead of npm since metabase uses yarn
-        if [ -f "metabase/yarn.lock" ]; then
-          cd metabase && yarn install
-        else
-          echo "No yarn.lock found, skipping yarn install"
-        fi
-    
-    - name: Build metabase and driver
-      run: |
-        echo "=== Starting build ==="
-        
-        echo "=== Checking driver setup ==="
-        if [ ! -L "metabase/modules/drivers/pinot" ]; then
-          echo "Driver symlink not found, creating..."
-          make link_to_driver
-        else
-          echo "Driver symlink found"
-        fi
-        
-        echo "=== Updating deps files ==="
-        make update_deps_files
-        
-        echo "=== Building frontend ==="
-        make front_end
-        
-        echo "=== Building driver ==="
-        cd metabase
-        # Ensure metabase core is available on classpath by including dev alias
-        # The :dev alias includes core source paths needed for metabase.util.ssh
-        clojure -X:dev:build:drivers:build/driver :driver :pinot :edition :oss
-        cd ..
-        
+        make driver
+
         echo "=== Checking if driver JAR was created ==="
         if [ -f "metabase/resources/modules/pinot.metabase-driver.jar" ]; then
           echo "✅ Driver JAR successfully created"
@@ -322,6 +263,13 @@ jobs:
     - name: Run driver verification
       run: clojure verify_driver.clj
 
+    - name: Upload packaged driver
+      uses: actions/upload-artifact@v7
+      with:
+        name: pinot-driver
+        path: metabase/resources/modules/pinot.metabase-driver.jar
+        if-no-files-found: error
+
   security:
     # Secrets are not available for PRs from forks; only run when secrets can be read.
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
@@ -336,7 +284,7 @@ jobs:
     - name: Setup Clojure
       uses: DeLaGuardo/setup-clojure@13.6.1
       with:
-        cli: 1.12.1.1550
+        cli: 1.12.3.1577
 
     - name: Cache dependencies
       uses: actions/cache@v5
