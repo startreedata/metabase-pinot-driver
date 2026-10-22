@@ -97,6 +97,12 @@ jobs:
           'type == "array" and all(.[]; .ref != $ref)' target/release-validation/matching-tags.json
         echo "ci_url=$(jq -r '.workflow_runs[0].html_url' target/release-validation/ci-runs.json)" >> "$GITHUB_OUTPUT"
 
+    - name: Set up Java 21 for Pinot
+      uses: actions/setup-java@v5
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
     - name: Start pinned Pinot
       env:
         PINOT_VERSION: ${{ steps.validate.outputs.pinot_version }}

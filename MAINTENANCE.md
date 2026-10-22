@@ -17,6 +17,9 @@ implementation tasks, compatibility validation, and driver publication.
 - Prioritize the current stable Metabase line. Evaluate the previous supported
   line and LTS separately; promise support only after each has passed validation.
   Treat upstream previews as early compatibility warnings.
+- Validate against the Pinot 1.5 release line using the exact patch pinned in
+  `app_versions.json`. Record the actual Pinot patch tested; results against a
+  different release line or release candidate do not establish 1.5 compatibility.
 - Compare upstream versions numerically, including hotfix components. A patch
   published on an older line is not a newer current line. Deduplicate paired
   open-source and paid-edition releases; do not claim paid-edition compatibility
