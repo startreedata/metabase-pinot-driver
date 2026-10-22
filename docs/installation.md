@@ -20,14 +20,12 @@ nav_order: 2
 Before installing the Metabase Pinot Driver, ensure you have the following:
 
 - **Git**
-- **Docker**
-- **Java 17**
-- **Clojure 1.12.1.1550**
-- **NodeJS 22**
-- **NPM 10**
-- **Yarn 1.22**
-- A running **Apache Pinot 1.3.0** instance
-- **Metabase v0.55.7**
+- **Java 25 (Eclipse Temurin)**
+- **Clojure CLI 1.12.3.1577**
+- A running **Apache Pinot 1.5.1** instance
+- **Metabase v0.64.1**
+
+Building only the driver requires Git, Java, Clojure CLI, Make, and jq. Building the Metabase frontend with `make build` also requires NodeJS 22.23.2 and Bun 1.3.14.
 
 ## Install from Release
 

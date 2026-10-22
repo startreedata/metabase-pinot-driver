@@ -15,7 +15,7 @@
   (:require
    [clojure.string :as str]
    [metabase.driver.sql.query-processor :as sql.qp]
-   [metabase.legacy-mbql.util :as mbql.u]
+   [metabase.lib.convert :as lib.convert]
    [metabase.lib.metadata :as lib.metadata]
    [metabase.query-processor.error-type :as qp.error-type]
    [metabase.query-processor.store :as qp.store]
@@ -37,7 +37,10 @@
 
     (let [x 100] ...) ; x is the lvalue; 100 is the rvalue"
   {:arglists '([x])}
-  mbql.u/dispatch-by-clause-name-or-class)
+  (fn [value]
+    (if (and (sequential? value) (keyword? (first value)))
+      (first value)
+      (class value))))
 
 (defmethod ->rvalue nil
   [_]
@@ -127,7 +130,9 @@
 
 (defn- temporal-expression
   [field-name field-info unit]
-  (let [timezone (get-in *query* [:settings :timezone] "UTC")]
+  (let [timezone (or (get-in *query* [:settings :report-timezone])
+                     (get-in *query* [:settings :timezone])
+                     "UTC")]
     (str "DATETRUNC("
          (sql-string unit) ", "
          (quote-identifier field-name) ", "
@@ -296,31 +301,30 @@
           pinot-query)))))
 
 ;;; ----------------------------------------------- handle-aggregation -----------------------------------------------
+(defn- aggregation-expression
+  [aggregation]
+  (let [[agg-func options] (if (#{:aggregation :aggregation-options} (first aggregation))
+                             [(second aggregation) (nth aggregation 2 nil)]
+                             [aggregation nil])
+        [agg-type & fields] agg-func
+        agg-fields (map resolve-field fields)
+        expression (case agg-type
+                     :count (str "COUNT(" (if (seq fields) (str/join ", " agg-fields) "*") ")")
+                     :distinct (str "DISTINCTCOUNT(" (str/join ", " agg-fields) ")")
+                     (str (u/upper-case-en (name agg-type)) "(" (str/join ", " agg-fields) ")"))]
+    {:expression expression, :name (:name options)}))
+
 (defn- handle-aggregations
   [original-query pinot-query]
   ;; Extract aggregations from the original query and add to pinot-query
   (let [aggregations (:aggregation original-query)]
     (log/debugf "Processing aggregations: %s" aggregations)
     (let [aggregation-clauses (map (fn [aggregation]
-                                     (let [[_ agg-func options] aggregation
-                                           agg-type (first agg-func)
-                                           agg-fields (map resolve-field (subvec agg-func 1))
-                                           agg-name (:name options)]
-                                       (log/debugf "Processing aggregation clause: %s, agg-type: %s, agg-fields: %s" aggregation, agg-type, agg-fields)
-                                       (let [result (cond
-                                                      (= agg-type :count) (str "COUNT(*)" (when agg-name (str " AS " agg-name)))
-                                                      (= agg-type :distinctCount) (str "DISTINCTCOUNT(" (str/join ", " agg-fields) ")" (when agg-name (str " AS " agg-name)))
-                                                      (= agg-type :distinct) (str "DISTINCT(" (str/join ", " agg-fields) ")" (when agg-name (str " AS " agg-name)))
-                                                      (= agg-type :sum) (str "SUM(" (str/join ", " agg-fields) ")" (when agg-name (str " AS " agg-name)))
-                                                      (= agg-type :avg) (str "AVG(" (str/join ", " agg-fields) ")" (when agg-name (str " AS " agg-name)))
-                                                      (= agg-type :min) (str "MIN(" (str/join ", " agg-fields) ")" (when agg-name (str " AS " agg-name)))
-                                                      (= agg-type :max) (str "MAX(" (str/join ", " agg-fields) ")" (when agg-name (str " AS " agg-name)))
-                                                      (= agg-type :percentile) (let [[field percentile] agg-fields]
-                                                                               (str "PERCENTILE(" field ", " percentile ")" (when agg-name (str " AS " agg-name))))
-
-                                                      :else (str (u/upper-case-en (str agg-type)) "(" (str/join ", " agg-fields) ")" (when agg-name (str " AS " agg-name))))]
-                                         (log/debugf "Generated aggregation clause: %s" result)
-                                         result)))
+                                    (let [{:keys [expression name]} (aggregation-expression aggregation)]
+                                      (str expression (when name
+                                                        (str " AS " (if (re-matches #"[A-Za-z_][A-Za-z0-9_]*" name)
+                                                                      name
+                                                                      (quote-identifier name)))))))
                                    aggregations)]
       (if (seq aggregation-clauses)
         (assoc-in pinot-query [:query :aggregations] aggregation-clauses)
@@ -345,7 +349,10 @@
   ;; Extract order by fields from the original query and add to pinot-query
   (let [order-by (:order-by original-query)
         order-by-clauses (map (fn [[direction field]]
-                                (let [field-name (resolve-field field)]
+                                (let [field-name (if (= :aggregation (first field))
+                                                   (:expression (aggregation-expression
+                                                                 (nth (:aggregation original-query) (second field))))
+                                                   (resolve-field field))]
                                   (str field-name " " (name direction))))
                               order-by)]
     (if (seq order-by-clauses)
@@ -473,8 +480,12 @@
 (defn mbql->native
   "Transpile an MBQL (inner) query into a native form suitable for a Pinot DB."
   [query]
-  ;; Merge `:settings` into the inner query dict so the QP has access to it
-  (let [query (assoc (:query query) :settings (:settings query))]
+  ;; Metabase passes MBQL 5 to drivers. Convert its stages and clauses before using the Pinot compiler.
+  (let [query (if (= :mbql/query (:lib/type query))
+                (lib.convert/->legacy-MBQL query)
+                query)
+        ;; Merge `:settings` into the inner query dict so the QP has access to it.
+        query (assoc (:query query) :settings (:settings query))]
     (binding [*query*                           query]
       (try
         (build-pinot-query query)

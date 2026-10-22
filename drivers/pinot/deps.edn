@@ -1,6 +1,5 @@
 {:paths ["src" "resources"]
- :deps {org.clojure/core.async {:mvn/version "1.6.681"}
-        metabase/metabase-core {:local/root "../../metabase"}
+ :deps {org.clojure/core.async {:mvn/version "1.7.701"}
         redux/redux {:git/url "https://github.com/metabase/redux"
                      :sha "4a37feaf817a2a6b5ef688c927f6fd4375964433"}}
  :override-deps {redux/redux {:git/url "https://github.com/metabase/redux"
@@ -21,11 +20,13 @@
 
   :test
   {:extra-paths ["test"]
-   :extra-deps {org.clojure/test.check {:mvn/version "1.1.1"}}}
+   :extra-deps {metabase/metabase-core {:local/root "../../metabase"}
+                org.clojure/test.check {:mvn/version "1.1.1"}}}
 
   :coverage
   {:extra-paths ["test"]
-   :extra-deps {cloverage/cloverage {:mvn/version "1.2.4"}}
+   :extra-deps {metabase/metabase-core {:local/root "../../metabase"}
+                cloverage/cloverage {:mvn/version "1.2.4"}}
    :main-opts ["-m" "cloverage.coverage" 
                "--src-ns-path" "src" 
                "--test-ns-path" "test"
@@ -39,7 +40,8 @@
 
   :test-coverage
   {:extra-paths ["test"]
-   :extra-deps {cloverage/cloverage {:mvn/version "1.2.4"}}
+   :extra-deps {metabase/metabase-core {:local/root "../../metabase"}
+                cloverage/cloverage {:mvn/version "1.2.4"}}
    :exec-fn cloverage.coverage/run-project
    :exec-args {:src-ns-path ["src"]
                :test-ns-path ["test"] 
@@ -59,18 +61,21 @@
   :security-scan-cp
   {:replace-paths ["src" "resources"]
    :replace-deps {org.clojure/clojure {:mvn/version "1.12.3"}
-                  org.clojure/core.async {:mvn/version "1.6.681"}
+                  org.clojure/core.async {:mvn/version "1.7.701"}
                   redux/redux {:git/url "https://github.com/metabase/redux"
                                :sha "4a37feaf817a2a6b5ef688c927f6fd4375964433"}}}
 
   :security-scan
   {:replace-paths ["src" "resources" "test"]
-   :replace-deps {nvd-clojure/nvd-clojure {:mvn/version "5.2.0"}}
+   :replace-deps {nvd-clojure/nvd-clojure {:mvn/version "5.2.0"}
+                  ;; Fix reference URL overflow that silently drops CVE software matches.
+                  org.owasp/dependency-check-core {:mvn/version "12.2.2"}}
    :main-opts ["-m" "nvd.task.check"]}
 
   :test-runner
   {:extra-paths ["test"]
-   :extra-deps {lambdaisland/kaocha {:mvn/version "1.60.972"}
+   :extra-deps {metabase/metabase-core {:local/root "../../metabase"}
+                lambdaisland/kaocha {:mvn/version "1.60.972"}
                 lambdaisland/kaocha-junit-xml {:mvn/version "1.17.101"}}
    :main-opts ["-m" "kaocha.runner"]}
 
@@ -80,11 +85,13 @@
    :main-opts ["-e" "(require '[criterium.core :as crit])"]}
 
   :repl
-  {:extra-deps {nrepl/nrepl {:mvn/version "0.8.3"}
+  {:extra-deps {metabase/metabase-core {:local/root "../../metabase"}
+                nrepl/nrepl {:mvn/version "0.8.3"}
                 cider/cider-nrepl {:mvn/version "0.26.0"}}
    :main-opts ["-m" "nrepl.cmdline" "--middleware" "[cider.nrepl/cider-middleware]"]}
 
   :dev
   {:extra-paths ["test" "dev"]
-   :extra-deps {org.clojure/tools.namespace {:mvn/version "1.2.0"}
+   :extra-deps {metabase/metabase-core {:local/root "../../metabase"}
+                org.clojure/tools.namespace {:mvn/version "1.2.0"}
                 org.clojure/tools.trace {:mvn/version "0.7.11"}}}}}

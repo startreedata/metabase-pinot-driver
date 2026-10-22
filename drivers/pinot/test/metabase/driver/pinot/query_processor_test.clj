@@ -44,7 +44,7 @@
                  :query {:source-table 1
                          :fields [[:field 1 nil]]
                          :breakout [[:field 1 nil]]
-                         :aggregation [[:aggregation [:count [:field 1 nil]] {:name "total"}]]
+                         :aggregation [[:aggregation [:count] {:name "total"}]]
                          :filter [:and [:= [:field 1 nil] 10] [:> [:field 2 nil] 0]]
                          :order-by [[:asc [:field 1 nil]]]
                          :limit 10
@@ -62,6 +62,41 @@
       (is (= "events" (get-in result [:query :dataSource])))
       (is (= "SELECT \"id\", COUNT(*) AS total FROM events WHERE (\"id\" = 10 AND \"price\" > 0) GROUP BY \"id\" ORDER BY \"id\" asc LIMIT 20, 10"
              sql)))))
+
+(deftest mbql5-fields-and-filters
+  (with-redefs [qp.store/metadata-provider (:qp.store/metadata-provider redefine-metadata!)
+                lib.metadata/table (:lib.metadata/table redefine-metadata!)
+                lib.metadata/field (:lib.metadata/field redefine-metadata!)]
+    (let [query {:database 1
+                 :lib/type :mbql/query
+                 :stages [{:lib/type :mbql.stage/mbql
+                           :source-table 1
+                           :fields [[:field {} 1]]
+                           :filters [[:>= {} [:field {} 2] 10]
+                                     [:< {} [:field {} 2] 20]]
+                           :limit 5}]}]
+      (is (= "SELECT \"id\" FROM events WHERE (\"price\" >= 10 AND \"price\" < 20) LIMIT 5"
+             (get-in (qp/mbql->native query) [:query :sql]))))))
+
+(deftest mbql5-aggregations-and-order-by-reference
+  (with-redefs [qp.store/metadata-provider (:qp.store/metadata-provider redefine-metadata!)
+                lib.metadata/table (:lib.metadata/table redefine-metadata!)
+                lib.metadata/field (:lib.metadata/field redefine-metadata!)]
+    (let [sum-id "4d338fa2-1840-4196-af8c-9af46c11857d"
+          query {:database 1
+                 :lib/type :mbql/query
+                 :stages [{:lib/type :mbql.stage/mbql
+                           :source-table 1
+                           :breakout [[:field {} 1]]
+                           :aggregation [[:count {:lib/uuid "c3ea45b8-50bd-42b7-8076-64e549d4eea6"
+                                                  :name "total"}]
+                                         [:sum {:lib/uuid sum-id :name "Total Revenue"} [:field {} 2]]
+                                         [:count {:lib/uuid "e8260d6e-f429-43d6-b756-d67a5df8aff5"} [:field {} 2]]
+                                         [:distinct {:lib/uuid "2c56e485-7935-42f8-b9f1-6061593541a5"}
+                                          [:field {} 1]]]
+                           :order-by [[:desc {} [:aggregation {} sum-id]]]}]}]
+      (is (= "SELECT \"id\", COUNT(*) AS total, SUM(\"price\") AS \"Total Revenue\", COUNT(\"price\"), DISTINCTCOUNT(\"id\") FROM events GROUP BY \"id\" ORDER BY SUM(\"price\") desc"
+             (get-in (qp/mbql->native query) [:query :sql]))))))
 
 (deftest filters-handle-between-and-not
   (with-redefs [qp.store/metadata-provider (:qp.store/metadata-provider redefine-metadata!)
@@ -107,7 +142,7 @@
           result (qp/mbql->native query)
           sql (get-in result [:query :sql])]
       (is (str/includes? sql "SUM(\"id\") AS total"))
-      (is (str/includes? sql "DISTINCT(\"price\") AS uniq"))
+      (is (str/includes? sql "DISTINCTCOUNT(\"price\") AS uniq"))
       (is (str/includes? sql "LIMIT 5")))))
 
 (deftest aggregations-cover-common-functions
@@ -130,7 +165,7 @@
           sql (get-in (qp/mbql->native query) [:query :sql])]
       (doseq [fragment ["COUNT(*) AS cnt"
                         "DISTINCTCOUNT(\"id\") AS dc"
-                        "DISTINCT(\"price\") AS distinct"
+                        "DISTINCTCOUNT(\"price\") AS distinct"
                         "AVG(\"price\") AS avg"
                         "MIN(\"price\") AS min"
                         "MAX(\"price\") AS max"
@@ -188,7 +223,7 @@
                 lib.metadata/field (:lib.metadata/field redefine-metadata!)]
     (let [query {:database 1
                  :type :query
-                 :settings {:timezone "America/Los_Angeles"}
+                 :settings {:report-timezone "America/Los_Angeles"}
                  :query {:source-table 1
                          :breakout [[:field 3 {:temporal-unit :day}]]
                          :aggregation [[:aggregation [:count] {:name "total"}]]

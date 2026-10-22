@@ -24,14 +24,12 @@ This repository contains the Apache Pinot driver for Metabase, allowing you to c
 ## Prerequisites
 
 - Git
-- Docker
-- Java 17
-- Clojure 1.12.1.1550
-- NodeJS 22
-- NPM 10
-- Yarn 1.22
-- Apache Pinot 1.3.0
-- Metabase v0.55.7
+- Java 25 (Eclipse Temurin)
+- Clojure CLI 1.12.3.1577
+- Apache Pinot 1.5.1
+- Metabase v0.64.1 (the pinned build target)
+
+Building the Metabase frontend with `make build` or `make front_end` also requires NodeJS 22.23.2 and Bun 1.3.14. `make driver` only requires Git, Java, Clojure CLI, Make, and jq.
 
 ## Installation
 
@@ -114,9 +112,32 @@ make test
 ```
 
 This will:
-1. Start a Pinot instance (if not already running)
+1. Clone the pinned Metabase source (if not already present)
 2. Link the driver to Metabase
-3. Run the test suite
+3. Run the existing driver test suite once with coverage
+
+These tests use mocked Pinot responses. Release compatibility also requires loading the packaged driver in the pinned Metabase version and checking a real Pinot connection, schema sync, native SQL, MBQL, and SQL parameters.
+
+`make test` requires Python 3 and enforces 68% line coverage. Form coverage is reported separately because upstream logging macro expansion changes its denominator between Metabase versions.
+
+### Tested Compatibility
+
+On 2026-10-22, the same unmodified **0.64.1** driver JAR passed all 13 packaged
+runtime checks for each combination below (Metabase on Java 25, Pinot on Java 21):
+
+| Metabase runtime | Pinot release | Result |
+|:-----------------|:--------------|:-------|
+| v0.63.20 (`3b8fcdc`) | 1.5.1 | 13/13 passed |
+| v0.64.1 (`7010f27`) | 1.5.1 | 13/13 passed |
+| v0.64.1 (`7010f27`) | 1.5.0 | 13/13 passed |
+
+Connection, schema sync, native SQL, MBQL selection and aggregation, ordering,
+and number/text/field/optional parameters matched direct Pinot results for each
+release. The existing suite and focused host-policy regressions passed (88 tests).
+CI builds once, runs the unit suite once, and checks both declared Metabase
+runtimes against the pinned Pinot 1.5.1 quickstart. The build target and embedded
+driver version remain v0.64.1 and 0.64.1 respectively.
+See [the reproducible smoke command](docs/development.md#packaged-driver-compatibility).
 
 ### Manual Testing Notes (Variable Substitution)
 
@@ -140,6 +161,10 @@ The following behaviors were manually verified for **variable substitution** (SQ
 
 ## Releases
 
+New driver releases mirror the targeted Metabase version: Metabase `v0.64.1`
+uses driver tag `v0.64.1` and embedded plugin version `0.64.1`. Hotfix and preview
+versions follow the same rule. Historical v1.x driver releases remain unchanged.
+
 ### Creating a Release
 
 This project uses GitHub Actions for automated releases. There are two ways to create a release:
@@ -150,7 +175,7 @@ This project uses GitHub Actions for automated releases. There are two ways to c
 2. Select the "Release" workflow
 3. Click "Run workflow"
 4. Fill in the required parameters:
-   - **Version**: Semantic version (e.g., `1.0.0`, `1.0.0-alpha.1`)
+   - **Version**: Target Metabase version without `v` (e.g., `0.64.1`, `0.64.1.1`, `0.65.0-RC1`)
    - **Commit SHA**: The full commit SHA to release from
    - **Prerelease**: Check if this is a prerelease
 
@@ -160,10 +185,10 @@ Use the provided release script for a more convenient CLI experience:
 
 ```bash
 # Basic release
-./scripts/release.sh 1.0.0 abc123def456...
+./scripts/release.sh 0.64.1 abc123def456...
 
 # Prerelease
-./scripts/release.sh --prerelease 1.0.0-alpha.1 abc123def456...
+./scripts/release.sh --prerelease 0.65.0-RC1 abc123def456...
 
 # Get help
 ./scripts/release.sh --help

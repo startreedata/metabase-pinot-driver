@@ -21,13 +21,13 @@ Starts a local Apache Pinot cluster with sample data for testing.
 ```
 
 **Environment Variables:**
-- `PINOT_VERSION`: Pinot version to use (default: 1.3.0)
+- `PINOT_VERSION`: Pinot version to use (defaults to `app_versions.json`, currently 1.5.1)
 - `PINOT_HOME`: Installation directory (default: /tmp/pinot)
 - `BROKER_PORT_FORWARD`: Broker port (default: 8000)
 
 **Example with custom settings:**
 ```bash
-export PINOT_VERSION="1.2.0"
+export PINOT_VERSION="1.5.1"
 export PINOT_HOME="/usr/local/pinot"
 export BROKER_PORT_FORWARD="8080"
 ./scripts/start-pinot-quickstart.sh
@@ -82,13 +82,13 @@ The start script runs the `DATETRUNC` query above as an e2e guard for Metabase t
 
 ## Requirements
 
-- Java 8+ (for running Pinot)
+- Java 21 (the Pinot 1.5.x runtime used for compatibility checks; Metabase requires Java 25)
 - curl (for downloading Pinot)
 - jq (for JSON parsing in validation)
 
 ## Notes
 
-- The start script will automatically download Apache Pinot if not already present
+- The start script downloads from `downloads.apache.org`, with an archive fallback for older releases
 - The cluster includes sample data that's perfect for testing the Metabase Pinot driver
 - Scripts are based on the [startreedata/pinot-client-go](https://github.com/startreedata/pinot-client-go) repository
 - For production use, consider using proper Pinot deployment methods instead of these quickstart scripts
