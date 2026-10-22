@@ -67,7 +67,9 @@
 
   :security-scan
   {:replace-paths ["src" "resources" "test"]
-   :replace-deps {nvd-clojure/nvd-clojure {:mvn/version "5.2.0"}}
+   :replace-deps {nvd-clojure/nvd-clojure {:mvn/version "5.2.0"}
+                  ;; Fix reference URL overflow that silently drops CVE software matches.
+                  org.owasp/dependency-check-core {:mvn/version "12.2.2"}}
    :main-opts ["-m" "nvd.task.check"]}
 
   :test-runner

@@ -100,6 +100,21 @@ The driver accepts Metabase's MBQL 5 input through its legacy-query conversion A
 and retains the Pinot SQL compiler. Native parameters use the current stage-based
 hook; execution reads the compiled query from `:qp/compiled`.
 
+## Security Scan
+
+CI stores the NVD database separately from Maven dependencies. On a cold cache,
+`scripts/bootstrap-nvd.clj` imports the [maintainer's bulk JSON feed](https://github.com/dependency-check/DependencyCheck/discussions/8633)
+without an API token. Restored databases skip this import. Both paths require a
+non-future boundary less than 120 days old, followed by a fresh NIST API delta and
+the full dependency scan. The final config omits the feed URL and sets
+`:valid-for-hours 0`; otherwise a new bulk seed can incorrectly skip the API check.
+
+The isolated `:security-scan` alias uses Dependency-Check 12.2.2 for the
+[reference URL overflow fix](https://github.com/dependency-check/DependencyCheck/pull/8467).
+Earlier engines can silently omit CVE software matches. CI rejects logged CVE
+ingestion errors and verifies the final report's API timestamps before saving a
+new cache snapshot. The job is bounded to 240 minutes; failed scans never save it.
+
 ## Architecture
 
 The driver is composed of several key modules:
