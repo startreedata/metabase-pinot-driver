@@ -152,6 +152,10 @@ The following behaviors were manually verified for **variable substitution** (SQ
 
 ## Releases
 
+New driver releases mirror the targeted Metabase version: Metabase `v0.64.1`
+uses driver tag `v0.64.1` and embedded plugin version `0.64.1`. Hotfix and preview
+versions follow the same rule. Historical v1.x driver releases remain unchanged.
+
 ### Creating a Release
 
 This project uses GitHub Actions for automated releases. There are two ways to create a release:
@@ -162,7 +166,7 @@ This project uses GitHub Actions for automated releases. There are two ways to c
 2. Select the "Release" workflow
 3. Click "Run workflow"
 4. Fill in the required parameters:
-   - **Version**: Semantic version (e.g., `1.0.0`, `1.0.0-alpha.1`)
+   - **Version**: Target Metabase version without `v` (e.g., `0.64.1`, `0.64.1.1`, `0.65.0-RC1`)
    - **Commit SHA**: The full commit SHA to release from
    - **Prerelease**: Check if this is a prerelease
 
@@ -172,10 +176,10 @@ Use the provided release script for a more convenient CLI experience:
 
 ```bash
 # Basic release
-./scripts/release.sh 1.0.0 abc123def456...
+./scripts/release.sh 0.64.1 abc123def456...
 
 # Prerelease
-./scripts/release.sh --prerelease 1.0.0-alpha.1 abc123def456...
+./scripts/release.sh --prerelease 0.65.0-RC1 abc123def456...
 
 # Get help
 ./scripts/release.sh --help

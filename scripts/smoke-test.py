@@ -72,12 +72,19 @@ def main():
                        if "=" in line and not line.startswith("#"))
     require(version.get("tag") == target,
             f"Metabase JAR is {version.get('tag')}; app_versions.json requires {target}")
+    with zipfile.ZipFile(args.driver_jar) as jar:
+        manifest = jar.read("metabase-plugin.yaml").decode()
+    driver_version = next((line.partition(":")[2].strip().strip("\"'")
+                           for line in manifest.splitlines() if line.startswith("  version:")), None)
+    require(driver_version == target.removeprefix("v"),
+            f"Driver version is {driver_version}; expected {target.removeprefix('v')}")
     java = str(Path(os.environ["JAVA_HOME"]) / "bin/java") if os.environ.get("JAVA_HOME") else shutil.which("java")
     require(java, "Java is required")
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     output = (args.output_dir or root / "target" / f"smoke-test-{stamp}").resolve()
     output.mkdir(parents=True, exist_ok=True)
-    evidence = {"metabase": version, "driver_sha256": sha256(args.driver_jar),
+    evidence = {"metabase": version, "driver_version": driver_version,
+                "driver_sha256": sha256(args.driver_jar),
                 "metabase_sha256": sha256(args.metabase_jar),
                 "controller_url": args.controller_url, "checks": []}
     controller = args.controller_url.rstrip("/")
