@@ -64,9 +64,9 @@
   [_ details]
   {:pre [(map? details)]}
   (ssh/with-ssh-tunnel [details-with-tunnel details]
-    (let [{:keys [auth-enabled auth-token-type auth-token-value database-name]} details
+    (let [{:keys [auth-enabled auth-token-type database-name]} details
           headers (if auth-enabled
-                    {"Authorization" (str auth-token-type " " auth-token-value)
+                    {"Authorization" (str auth-token-type " " (pinot.client/auth-token details))
                      "database" database-name} ;; Create the Authorization header
                     {})]
       ;; Make the GET request with headers properly nested

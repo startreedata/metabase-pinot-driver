@@ -15,7 +15,6 @@
   (:require
    [metabase.driver.pinot.client :as pinot.client]
    [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh]
-   [metabase.secrets.models.secret :as secret]
    [clojure.string :as str]))
 
 (defn- pinot-type->base-type [field-type]
@@ -38,7 +37,7 @@
                      :database-name (:database-name details-with-tunnel)
                      :auth-enabled        (-> database :details :auth-enabled)
                      :auth-token-type     (-> database :details :auth-token-type)
-                     :auth-token-value    (secret/value-as-string nil (:details database) "auth-token-value"))
+                     :auth-token-value    (pinot.client/auth-token (:details database)))
           dimensions    (response :dimensionFieldSpecs)
           metrics       (response :metricFieldSpecs)
           time-columns  (response :dateTimeFieldSpecs)]
@@ -68,7 +67,7 @@
                      :database-name (:database-name details-with-tunnel)
                      :auth-enabled     (-> database :details :auth-enabled)
                      :auth-token-type    (-> database :details :auth-token-type)
-                     :auth-token-value (secret/value-as-string nil (:details database) "auth-token-value"))
+                     :auth-token-value (pinot.client/auth-token (:details database)))
           pinot-tables (response :tables)]
       {:tables (set (for [table-name pinot-tables]
                       {:schema nil, :name (str/replace table-name #"^.*\." "")}))})))
@@ -84,7 +83,7 @@
       (let [response (pinot.client/GET (pinot.client/details->url details-with-tunnel "/health")
                        :auth-enabled     (-> database :details :auth-enabled)
                        :auth-token-type  (-> database :details :auth-token-type)
-                       :auth-token-value (secret/value-as-string nil (:details database) "auth-token-value")
+                       :auth-token-value (pinot.client/auth-token (:details database))
                        :as :text)]
         (if (= "OK" response)
           {:version "latest"}
@@ -93,6 +92,6 @@
       (let [response (pinot.client/GET (pinot.client/details->url details-with-tunnel "/version")
                        :auth-enabled     (-> database :details :auth-enabled)
                        :auth-token-type  (-> database :details :auth-token-type)
-                       :auth-token-value (secret/value-as-string nil (:details database) "auth-token-value"))
+                       :auth-token-value (pinot.client/auth-token (:details database)))
             version (response :pinot-segment-uploader-default)]
-        {:version version})))) 
+        {:version version}))))
