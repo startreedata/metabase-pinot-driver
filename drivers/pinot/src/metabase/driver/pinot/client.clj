@@ -32,6 +32,15 @@
   (or (secret/value-as-string :pinot details "auth-token-value")
       (:auth-token-value details)))
 
+(defn authorization-header
+  "Build an Authorization value, canonicalizing only Basic and Bearer schemes."
+  [scheme token]
+  (str (case (str/lower-case (str scheme))
+         "basic" "Basic"
+         "bearer" "Bearer"
+         scheme)
+       " " token))
+
 (defn details->url
   "Helper for building a Pinot URL.
    (details->url {:controller-endpoint \"http://localhost:9000\"}) -> \"http://localhost:9000\""
@@ -50,7 +59,7 @@
         ;; Construct headers map
         headers (cond-> {}
                   (not= (:as options) :text) (assoc "Content-Type" "application/json;charset=UTF-8")
-                  auth-enabled (assoc "Authorization" (str auth-token-type " " auth-token-value))
+                  auth-enabled (assoc "Authorization" (authorization-header auth-token-type auth-token-value))
                   database-name (assoc "database" database-name))
 
         ;; Update options with headers and possibly serialize body if present

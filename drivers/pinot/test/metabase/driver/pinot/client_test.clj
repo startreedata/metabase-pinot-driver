@@ -74,6 +74,17 @@
         (is (= "secret" (:auth-token-value (:opts @captured))))))))
 
 (deftest do-request-adds-headers-and-parses-json
+  (testing "known schemes use canonical casing without changing tokens or other schemes"
+    (doseq [[scheme expected] [["basic" "Basic"]
+                              ["Basic" "Basic"]
+                              ["bAsIc" "Basic"]
+                              ["bearer" "Bearer"]
+                              ["Bearer" "Bearer"]
+                              ["bEaReR" "Bearer"]
+                              ["CustomScheme" "CustomScheme"]]]
+      (is (= (str expected "  MiXeD+/= ")
+             (client/authorization-header scheme " MiXeD+/= ")))))
+
   (testing "JSON responses are parsed and headers constructed"
     (let [captured (atom nil)
           result (#'client/do-request
@@ -82,7 +93,7 @@
                     {:status 200 :body "{\"value\":123}"})
                   "http://pinot:9000/test"
                   :auth-enabled true
-                  :auth-token-type "Bearer"
+                  :auth-token-type "bearer"
                   :auth-token-value "secret"
                   :database-name "analytics")]
       (is (= {:value 123} result))
