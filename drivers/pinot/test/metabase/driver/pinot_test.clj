@@ -27,6 +27,7 @@
    [metabase.lib.core :as lib]
    [metabase.lib.metadata.protocols :as lib.metadata.protocols]
    [metabase.query-processor.parameters.values :as params.values]
+   [metabase.secrets.models.secret :as secret]
    [metabase.driver.pinot.client :as client]
    [metabase.driver.pinot.execute :as execute]
    [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh]))
@@ -109,6 +110,27 @@
       (with-redefs [ssh/do-with-ssh-tunnel (fn [config f] (f config))
                     http/get (fn [_ _] {:status 500})]
         (is (false? (driver/can-connect? :pinot {:controller-endpoint "http://pinot:9000"})))))))
+
+(deftest can-connect-with-metabase-secret-test
+  ;; The plugin manifest registers this secret property when loaded by Metabase.
+  (with-redefs [secret/secret-conn-props-by-name
+                (fn [driver]
+                  (when (= :pinot driver)
+                    {"auth-token-value" {:name "auth-token-value" :type :secret :secret-kind :password}}))
+                secret/latest-for-id
+                (fn [_] {:source :uploaded :value (.getBytes "token" "UTF-8")})
+                http/get
+                (fn [_ options]
+                  (is (= "Bearer token" (get-in options [:headers "Authorization"])))
+                  {:status 200})]
+    (doseq [secret-details [{:auth-token-value "token"}
+                            {:auth-token-value-value "token" :auth-token-value-options "uploaded"}
+                            {:auth-token-value-id 42}
+                            {:auth-token-value-id 42 :auth-token-value-value secret/protected-password}]]
+      (is (true? (driver/can-connect? :pinot
+                   (merge {:controller-endpoint "http://pinot:9000"
+                           :auth-enabled true :auth-token-type "Bearer"}
+                          secret-details)))))))
 
 (deftest execute-reducible-query-adds-timeout
   (testing "execute-reducible-query wraps SQL strings with a timeout map"

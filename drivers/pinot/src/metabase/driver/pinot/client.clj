@@ -26,6 +26,12 @@
 
 (set! *warn-on-reflection* true)
 
+(defn auth-token
+  "Resolve Metabase's secret fields, retaining the legacy plain token value."
+  [details]
+  (or (secret/value-as-string :pinot details "auth-token-value")
+      (:auth-token-value details)))
+
 (defn details->url
   "Helper for building a Pinot URL.
    (details->url {:controller-endpoint \"http://localhost:9000\"}) -> \"http://localhost:9000\""
@@ -142,7 +148,7 @@
                        :database-name (:database-name details)
                        :auth-enabled     (:auth-enabled details)
                        :auth-token-type  (:auth-token-type details)
-                       :auth-token-value (secret/value-as-string nil details "auth-token-value"))]
+                       :auth-token-value (auth-token details))]
 
         ;; Log the query, details, and response
         (log/debugf "Pinot details: %s, Pinot query: %s, Parsed Pinot response: %s"
@@ -177,7 +183,7 @@
           :database-name (:database-name details)
           :auth-enabled  (:auth-enabled details)
           :auth-token-type  (:auth-token-type details)
-          :auth-token-value (secret/value-as-string nil details "auth-token-value"))
+          :auth-token-value (auth-token details))
         (catch Exception cancel-e
           (log/warnf cancel-e "Failed to cancel Pinot query with queryId %s" query-id))))))
 
@@ -206,4 +212,4 @@
         result)
       (catch InterruptedException e
         @cancel!
-        (throw e))))) 
+        (throw e)))))
