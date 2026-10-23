@@ -85,7 +85,7 @@
 (deftest can-connect?-test
   (let [details {:controller-endpoint "http://pinot:9000"
                  :auth-enabled true
-                 :auth-token-type "Bearer"
+                 :auth-token-type "bearer"
                  :auth-token-value "token"
                  :database-name "analytics"}]
     (testing "successful connection returns true and uses auth headers"
