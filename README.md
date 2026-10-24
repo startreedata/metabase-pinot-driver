@@ -51,6 +51,11 @@ Building the Metabase frontend with `make build` or `make front_end` also requir
 
 ## Configuration
 
+On **Admin > Databases > Add a database**, select **StarTree(Pinot)**. The Metabase
+frontend built by `make build` or `make front_end` includes the StarTree logo.
+Stock Metabase v0.63/v0.64 does not load connector logos from driver JARs; a JAR-only
+installation changes the name and keeps the generic database icon.
+
 ### Connection Properties
 
 - **Controller endpoint**: The URL of your Pinot controller (e.g., `http://localhost:9000`)
@@ -222,7 +227,7 @@ Each release includes:
 1. Download the driver JAR from the [releases page](https://github.com/startreedata/metabase-pinot-driver/releases)
 2. Place it in your Metabase `plugins` directory
 3. Restart Metabase
-4. The Pinot driver will be available for database connections
+4. Select **StarTree(Pinot)** when adding a database connection
 
 ## Contributing
 
