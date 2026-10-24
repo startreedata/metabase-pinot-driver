@@ -66,8 +66,8 @@
   (ssh/with-ssh-tunnel [details-with-tunnel details]
     (let [{:keys [auth-enabled auth-token-type database-name]} details
           headers (if auth-enabled
-                    {"Authorization" (pinot.client/authorization-header auth-token-type (pinot.client/auth-token details))
-                     "database" database-name} ;; Create the Authorization header
+                    (cond-> {"Authorization" (pinot.client/authorization-header auth-token-type (pinot.client/auth-token details))}
+                      database-name (assoc "database" database-name))
                     {})]
       ;; Make the GET request with headers properly nested
       (= 200 (:status (http/get (pinot.client/details->url details-with-tunnel "/health")

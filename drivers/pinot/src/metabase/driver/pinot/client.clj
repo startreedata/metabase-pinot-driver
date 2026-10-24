@@ -33,8 +33,11 @@
       (:auth-token-value details)))
 
 (defn authorization-header
-  "Build an Authorization value, canonicalizing only Basic and Bearer schemes."
+  "Require a token and canonicalize only Basic and Bearer authorization schemes."
   [scheme token]
+  (when (str/blank? token)
+    (throw (ex-info (tru "Pinot authentication is enabled, but no token is configured.")
+                    {:type qp.error-type/db})))
   (str (case (str/lower-case (str scheme))
          "basic" "Basic"
          "bearer" "Bearer"
