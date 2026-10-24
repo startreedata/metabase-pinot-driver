@@ -34,7 +34,12 @@ The easiest way to install the driver is to download a pre-built JAR from the [R
 1. Download the latest `pinot.metabase-driver-v{version}.jar` from the releases page
 2. Place the JAR file in your Metabase `plugins/` directory
 3. Restart Metabase
-4. The **Pinot** driver will now be available when adding a new database connection
+4. The **StarTree(Pinot)** driver will now be available when adding a new database connection
+
+Metabase v0.63/v0.64 bundles connector logos in its frontend. Installing only the
+driver JAR updates the connector name but retains Metabase's generic database icon.
+For the StarTree logo, use the Metabase frontend built by `make build` below;
+`make front_end` also applies the logo integration when rebuilding an existing checkout.
 
 {: .note }
 If your Metabase `plugins/` directory doesn't exist, create it in the same directory as your Metabase JAR file.
@@ -73,5 +78,5 @@ If your Metabase `plugins/` directory doesn't exist, create it in the same direc
 After starting Metabase:
 
 1. Navigate to **Admin** > **Databases** > **Add a database**
-2. Look for **Pinot** in the database type dropdown
+2. Look for **StarTree(Pinot)** in the database type dropdown
 3. If it appears, the driver is installed correctly
