@@ -1,4 +1,4 @@
-.PHONY: clone_metabase_if_missing clean link_to_driver front_end driver update_deps_files server test all release help
+.PHONY: clone_metabase_if_missing clean link_to_driver configure_metabase_branding front_end driver update_deps_files server test all release help
 .DEFAULT_GOAL := all
 export MB_EDITION=ee
 export NODE_OPTIONS='--max-old-space-size=4096'
@@ -63,7 +63,10 @@ else
 endif
 	
 
-front_end:
+configure_metabase_branding: clone_metabase_if_missing
+	python3 "$(makefile_dir)scripts/configure-metabase-branding.py" "$(makefile_dir)metabase"
+
+front_end: configure_metabase_branding
 	@echo "Building Front End..."
 	cd $(makefile_dir)metabase && bun install --frozen-lockfile && \
 	bun run build-release && bun run build-release:static-viz
