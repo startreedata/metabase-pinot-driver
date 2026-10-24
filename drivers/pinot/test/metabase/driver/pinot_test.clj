@@ -106,6 +106,16 @@
         (is (true? (driver/can-connect? :pinot {:controller-endpoint "http://pinot:9000"
                                                 :auth-enabled false})))))
 
+    (testing "an unresolved token fails before the health request"
+      (let [requested? (atom false)]
+        (with-redefs [ssh/do-with-ssh-tunnel (fn [config f] (f config))
+                      secret/value-as-string (constantly nil)
+                      http/get (fn [_ _] (reset! requested? true) {:status 200})]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                #"Pinot authentication is enabled, but no token is configured"
+                                (driver/can-connect? :pinot (dissoc details :auth-token-value))))
+          (is (false? @requested?)))))
+
     (testing "non-200 status is treated as a failed connection"
       (with-redefs [ssh/do-with-ssh-tunnel (fn [config f] (f config))
                     http/get (fn [_ _] {:status 500})]
@@ -122,6 +132,7 @@
                 http/get
                 (fn [_ options]
                   (is (= "Bearer token" (get-in options [:headers "Authorization"])))
+                  (is (not (contains? (:headers options) "database")))
                   {:status 200})]
     (doseq [secret-details [{:auth-token-value "token"}
                             {:auth-token-value-value "token" :auth-token-value-options "uploaded"}

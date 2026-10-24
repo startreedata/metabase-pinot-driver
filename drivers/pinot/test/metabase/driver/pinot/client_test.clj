@@ -135,6 +135,17 @@
           (is (= "http://pinot:9000/broken" (:request-url data)))
           (is (:request-options data)))))))
 
+(deftest do-request-rejects-missing-auth-token
+  (doseq [token [nil "" " \t"]]
+    (let [requested? (atom false)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"Pinot authentication is enabled, but no token is configured"
+                            (#'client/do-request
+                             (fn [_ _] (reset! requested? true) {:status 200 :body "{}"})
+                             "http://pinot:9000/test"
+                             :auth-enabled true :auth-token-type "bearer" :auth-token-value token)))
+      (is (false? @requested?)))))
+
 (deftest cancel-query-with-id!-test
   (testing "missing query-id is a no-op"
     (is (nil? (#'client/cancel-query-with-id! {} nil))))
