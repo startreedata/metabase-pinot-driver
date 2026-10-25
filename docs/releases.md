@@ -23,7 +23,9 @@ See the [maintenance policy](https://github.com/startreedata/metabase-pinot-driv
 for upstream release alignment and compatibility requirements. New driver
 versions mirror the target Metabase version: Metabase `v0.64.3` maps to driver
 `v0.64.3`, including artifact `pinot.metabase-driver-v0.64.3.jar` and embedded
-plugin version `0.64.3`. Four-component upstream hotfix versions are mirrored too.
+plugin version `0.64.3`. Publish only stable major and point releases with exactly
+three numeric components and a point greater than zero. Hotfixes, previews,
+point-zero betas, and Cloud builds are excluded.
 Release notes must name the exact Metabase versions tested; historical driver
 `v1.x` releases remain available.
 
@@ -44,18 +46,15 @@ Each release includes:
 
    | Parameter | Description |
    |:----------|:------------|
-   | Version | Target Metabase version without `v` (e.g., `0.64.1`, `0.64.1.1`, `0.65.0-beta`) |
+   | Version | Stable Metabase major or point version without `v` (e.g., `0.64.3`, `0.65.1`) |
    | Commit SHA | Full commit SHA to release from |
-   | Prerelease | Check if this is a prerelease |
+   | Prerelease | Leave unchecked under the maintenance policy |
 
 ### Using the Release Script
 
 ```bash
-# Basic release
-./scripts/release.sh 0.64.1 abc123def456...
-
-# Prerelease
-./scripts/release.sh --prerelease 0.65.0-beta abc123def456...
+# Stable release
+./scripts/release.sh 0.64.3 abc123def456...
 
 # Get help
 ./scripts/release.sh --help

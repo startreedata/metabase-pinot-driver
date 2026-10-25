@@ -5,12 +5,19 @@ implementation tasks, compatibility validation, and driver publication.
 
 ## Release policy
 
-- Check Metabase releases daily at 09:00 America/Los_Angeles. A new stable
-  release starts compatibility validation; aim to publish the matching driver
-  in the next daily cycle once validation passes.
+- Check Metabase releases daily at 09:00 America/Los_Angeles using GitHub
+  releases, the official [version feed](https://static.metabase.com/version-info.json),
+  and supported-version documentation. The feed can list stable releases before
+  GitHub has a release entry; verify their source tags and official downloads.
+  Publish matching drivers for stable major and point (minor) releases after
+  validation. Under Metabase's
+  [License.Major.Point.Hotfix](https://www.metabase.com/docs/latest/developers-guide/versioning)
+  scheme, require exactly three numeric components with a point greater than zero.
+  Exclude hotfixes, drafts, previews, Cloud builds, floating `.x` versions, and
+  point-zero beta releases from publication.
 - Mirror the target Metabase version in the driver tag, artifact filename, and
   embedded plugin version: Metabase `v0.64.3` maps to driver `v0.64.3` with plugin
-  version `0.64.3`. Mirror upstream hotfix versions such as `v0.64.1.1` as well.
+  version `0.64.3`. Mirror only eligible stable major and point releases.
   Record the exact versions tested; matching version numbers are not proof of
   compatibility. Preserve historical driver `v1.x` releases and explicitly mark
   the first mirrored stable release as latest.

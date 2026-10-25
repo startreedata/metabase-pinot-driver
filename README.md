@@ -165,9 +165,10 @@ The following behaviors were manually verified for **variable substitution** (SQ
 
 ## Releases
 
-New driver releases mirror the targeted Metabase version: Metabase `v0.64.3`
-uses driver tag `v0.64.3` and embedded plugin version `0.64.3`. Hotfix and preview
-versions follow the same rule. Historical v1.x driver releases remain unchanged.
+New driver releases mirror stable Metabase major and point versions: Metabase
+`v0.64.3` uses driver tag `v0.64.3` and embedded plugin version `0.64.3`.
+Hotfixes and previews are excluded by the [maintenance policy](MAINTENANCE.md).
+Historical v1.x driver releases remain unchanged.
 
 ### Creating a Release
 
@@ -179,23 +180,17 @@ This project uses GitHub Actions for automated releases. There are two ways to c
 2. Select the "Release" workflow
 3. Click "Run workflow"
 4. Fill in the required parameters:
-   - **Version**: Matching Metabase release number without `v` (e.g., `0.64.1`, `0.64.1.1`, `0.64.1-rc.1`)
+   - **Version**: Matching stable Metabase major or point version without `v` (e.g., `0.64.3`, `0.65.1`)
    - **Commit SHA**: The full commit SHA to release from
-   - **Prerelease**: Check if this is a prerelease
+   - **Prerelease**: Leave unchecked under the maintenance policy
 
 #### 2. Using the Release Script
 
 Use the provided release script for a more convenient CLI experience:
 
 ```bash
-# Release matching Metabase v0.64.1
-./scripts/release.sh 0.64.1 abc123def456...
-
-# Release matching a four-component Metabase version
-./scripts/release.sh 0.64.1.1 abc123def456...
-
-# Prerelease
-./scripts/release.sh --prerelease 0.64.1-rc.1 abc123def456...
+# Release matching stable Metabase v0.64.3
+./scripts/release.sh 0.64.3 abc123def456...
 
 # Get help
 ./scripts/release.sh --help
