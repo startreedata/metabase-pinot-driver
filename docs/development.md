@@ -88,9 +88,9 @@ artifact, runs the unit suite once, and reuses that artifact for the deduplicate
 Metabase build pin plus the optional `metabase_compatibility` array in
 `app_versions.json`.
 
-To check the declared v0.63.20 compatibility runtime, use its official Metabase JAR
-and add `--metabase-version v0.63.20`. This selects only the runtime: the driver
-manifest must still match the v0.64.1 source build pin, so no JAR relabeling is needed.
+To check the declared v0.63.21 compatibility runtime, use its official Metabase JAR
+and add `--metabase-version v0.63.21`. This selects only the runtime: the driver
+manifest must still match the v0.64.3 source build pin, so no JAR relabeling is needed.
 
 The gate verifies the Pinot runtime version against `app_versions.json` (currently
 1.5.1). To check another concrete release, pass `--pinot-version`, for example
