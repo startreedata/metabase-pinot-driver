@@ -27,7 +27,7 @@ This repository contains the Apache Pinot driver for Metabase, allowing you to c
 - Java 25 (Eclipse Temurin)
 - Clojure CLI 1.12.3.1577
 - Apache Pinot 1.5.1
-- Metabase v0.64.1 (the pinned build target)
+- Metabase v0.64.3 (the pinned build target)
 
 Building the Metabase frontend with `make build` or `make front_end` also requires NodeJS 22.23.2 and Bun 1.3.14. `make driver` only requires Git, Java, Clojure CLI, Make, and jq.
 
@@ -127,21 +127,20 @@ These tests use mocked Pinot responses. Release compatibility also requires load
 
 ### Tested Compatibility
 
-On 2026-10-22, the same unmodified **0.64.1** driver JAR passed all 13 packaged
+On 2026-10-25, the same unmodified **0.64.3** driver JAR passed all 13 packaged
 runtime checks for each combination below (Metabase on Java 25, Pinot on Java 21):
 
 | Metabase runtime | Pinot release | Result |
 |:-----------------|:--------------|:-------|
-| v0.63.20 (`3b8fcdc`) | 1.5.1 | 13/13 passed |
-| v0.64.1 (`7010f27`) | 1.5.1 | 13/13 passed |
-| v0.64.1 (`7010f27`) | 1.5.0 | 13/13 passed |
+| v0.63.21 (`0a1771f`) | 1.5.1 | 13/13 passed |
+| v0.64.3 (`dc449ac`) | 1.5.1 | 13/13 passed |
 
 Connection, schema sync, native SQL, MBQL selection and aggregation, ordering,
 and number/text/field/optional parameters matched direct Pinot results for each
-release. The existing suite and focused host-policy regressions passed (88 tests).
+release. The existing unit suite passed with 97.77% source-line coverage.
 CI builds once, runs the unit suite once, and checks both declared Metabase
 runtimes against the pinned Pinot 1.5.1 quickstart. The build target and embedded
-driver version remain v0.64.1 and 0.64.1 respectively.
+driver version are v0.64.3 and 0.64.3 respectively.
 See [the reproducible smoke command](docs/development.md#packaged-driver-compatibility).
 
 ### Manual Testing Notes (Variable Substitution)
@@ -166,8 +165,8 @@ The following behaviors were manually verified for **variable substitution** (SQ
 
 ## Releases
 
-New driver releases mirror the targeted Metabase version: Metabase `v0.64.1`
-uses driver tag `v0.64.1` and embedded plugin version `0.64.1`. Hotfix and preview
+New driver releases mirror the targeted Metabase version: Metabase `v0.64.3`
+uses driver tag `v0.64.3` and embedded plugin version `0.64.3`. Hotfix and preview
 versions follow the same rule. Historical v1.x driver releases remain unchanged.
 
 ### Creating a Release

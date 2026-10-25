@@ -24,7 +24,7 @@ test/
 
 ### Prerequisites
 
-1. **Java 25** - Required for the pinned Metabase v0.64.1 target
+1. **Java 25** - Required for the pinned Metabase v0.64.3 target
 2. **Clojure CLI** - Version 1.12.3.1577
 3. **Apache Pinot** (optional) - For integration tests
 4. **Make** and **Python 3** - For the canonical `make test` command and line coverage gate
