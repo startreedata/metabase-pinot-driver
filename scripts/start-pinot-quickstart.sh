@@ -43,8 +43,9 @@ else
 fi
 
 
-# Start the Pinot cluster
-${PINOT_HOME}/apache-pinot-${PINOT_VERSION}-bin/bin/pinot-admin.sh QuickStart -type MULTI_STAGE &
+# Use one server: Pinot 1.5.1 shares dimension managers across in-process servers.
+# BATCH includes the same six tables checked below without concurrent reinitialization.
+${PINOT_HOME}/apache-pinot-${PINOT_VERSION}-bin/bin/pinot-admin.sh QuickStart -type BATCH &
 PID=$!
 
 # Print the JVM settings
