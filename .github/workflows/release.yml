@@ -224,6 +224,7 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" \
+          | jq 'map(map({tag_name, draft, prerelease, published_at}))' \
           > target/release-validation/published-releases.json
         make_latest=$(python3 scripts/select-release-latest.py "$RELEASE_VERSION" "$RELEASE_PRERELEASE" \
           < target/release-validation/published-releases.json)
