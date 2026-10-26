@@ -220,6 +220,7 @@ jobs:
 
     - name: Select latest stable release
       id: latest
+      shell: bash
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
