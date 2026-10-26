@@ -193,7 +193,9 @@
 
 (defn- substitute-parameters
   [query contract]
-  (let [stage (lib/query-stage query 0)]
+  (let [stage (if (= contract :legacy)
+                (first (:stages query))
+                (lib/query-stage query 0))]
     (if (= contract :legacy)
       ((requiring-resolve 'metabase.query-processor.store/do-with-metadata-provider)
        parameter-metadata
