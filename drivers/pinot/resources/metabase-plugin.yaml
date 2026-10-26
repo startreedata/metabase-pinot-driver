@@ -1,6 +1,6 @@
 info:
   name: Metabase Pinot Driver
-  version: 0.64.3
+  version: 0.58.37
   description: Allows Metabase to connect to Pinot databases.
 driver:
   name: pinot
