@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
   pull_request:
@@ -177,6 +178,9 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v6
+
+    - name: Check release latest selection
+      run: python3 -m unittest discover -s scripts -p 'test_release_latest.py'
 
     - name: Setup Clojure
       uses: DeLaGuardo/setup-clojure@13.6.1
