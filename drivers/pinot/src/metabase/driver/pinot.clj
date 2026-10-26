@@ -24,10 +24,8 @@
    [metabase.driver.pinot.query-processor :as pinot.qp]
    [metabase.driver.pinot.sync :as pinot.sync]
    [metabase.driver.sql-jdbc.connection.ssh-tunnel :as ssh]
-   [metabase.driver.sql.parameters.substitute :as sql.params.substitute]
    [metabase.driver.sql.parameters.substitution :as sql.params.substitution]
    [metabase.lib.core :as lib]
-   [metabase.query-processor.parameters.values :as params.values]
    [metabase.util.date-2 :as u.date]
    [metabase.util.log :as log]))
 
@@ -133,22 +131,57 @@
                   {:replacement-snippet (inline-params replacement-snippet prepared-statement-args)
                    :prepared-statement-args []}))))
 
+(def ^:private parameter-api
+  ;; Select one complete API at namespace load, then retain Vars for dynamic bindings and redefs.
+  (let [[kind hook params-map referenced-card-ids parse]
+        (if (ns-resolve 'metabase.driver 'substitute-native-parameters-in-stage-method)
+          [:modern
+           'metabase.driver/substitute-native-parameters-in-stage-method
+           'metabase.query-processor.parameters.values/stage->params-map
+           'metabase.query-processor.parameters.values/referenced-card-ids
+           'metabase.lib.core/parse-parameters]
+          [:legacy
+           'metabase.driver/substitute-native-parameters
+           'metabase.driver.common.parameters.values/query->params-map
+           'metabase.driver.common.parameters.values/referenced-card-ids
+           'metabase.driver.common.parameters.parse/parse])]
+    {:kind                    kind
+     :hook-var                (requiring-resolve hook)
+     :params-map-var          (requiring-resolve params-map)
+     :referenced-card-ids-var (requiring-resolve referenced-card-ids)
+     :parse-var               (requiring-resolve parse)
+     :substitute-var          (requiring-resolve 'metabase.driver.sql.parameters.substitute/substitute)}))
+
 (defn- substitute-parameter-stage
   [metadata-providerable {native-query :native :as stage}]
-  (let [params-map          (params.values/stage->params-map metadata-providerable stage)
-        referenced-card-ids (params.values/referenced-card-ids params-map)
-        [sql params]        (sql.params.substitute/substitute metadata-providerable (lib/parse-parameters native-query) params-map)]
+  (let [params-map          ((:params-map-var parameter-api) metadata-providerable stage)
+        referenced-card-ids ((:referenced-card-ids-var parameter-api) params-map)
+        [sql params]        ((:substitute-var parameter-api) metadata-providerable
+                             ((:parse-var parameter-api) native-query) params-map)]
     (cond-> (assoc stage :native sql :params params)
       (seq referenced-card-ids)
       (update :query-permissions/referenced-card-ids set/union referenced-card-ids))))
 
-(defmethod driver/substitute-native-parameters-in-stage-method :pinot
-  [_ query-or-metadata stage-or-number]
-  ;; Metabase 0.63 passes metadata and a stage; 0.64 passes the whole query and a stage number.
-  (if (map? stage-or-number)
-    (substitute-parameter-stage query-or-metadata stage-or-number)
-    (lib/update-query-stage query-or-metadata stage-or-number
-                            (partial substitute-parameter-stage query-or-metadata))))
+(defn- substitute-legacy-native-parameters
+  [inner-native-query]
+  (let [params-map          ((:params-map-var parameter-api) inner-native-query)
+        referenced-card-ids ((:referenced-card-ids-var parameter-api) params-map)
+        [sql params]        ((:substitute-var parameter-api)
+                             ((:parse-var parameter-api) (:query inner-native-query)) params-map)]
+    (cond-> (assoc inner-native-query :query sql :params params)
+      (seq referenced-card-ids)
+      (update :query-permissions/referenced-card-ids set/union referenced-card-ids))))
+
+(.addMethod ^clojure.lang.MultiFn @(:hook-var parameter-api) :pinot
+            (if (= :modern (:kind parameter-api))
+              (fn [_ query-or-metadata stage-or-number]
+                ;; Metabase 0.63 passes metadata and a stage; 0.64 passes the query and a stage number.
+                (if (map? stage-or-number)
+                  (substitute-parameter-stage query-or-metadata stage-or-number)
+                  (lib/update-query-stage query-or-metadata stage-or-number
+                                          (partial substitute-parameter-stage query-or-metadata))))
+              (fn [_ inner-native-query]
+                (substitute-legacy-native-parameters inner-native-query))))
 
 (defn- truncate-for-logging
   "Safely truncate query content for logging to avoid exposing sensitive data and reduce log verbosity."
