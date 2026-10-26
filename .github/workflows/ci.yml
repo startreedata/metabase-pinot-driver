@@ -110,7 +110,7 @@ jobs:
       if: always()
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        files: drivers/pinot/target/coverage/codecov.json
+        files: drivers/pinot/target/coverage/lcov.info
         directory: drivers/pinot/target/coverage/
         flags: pinot-driver
         name: pinot-driver-coverage
@@ -224,7 +224,7 @@ jobs:
       if: always()
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        files: drivers/pinot/target/coverage/codecov.json
+        files: drivers/pinot/target/coverage/lcov.info
         directory: drivers/pinot/target/coverage/
         flags: pinot-driver
         name: pinot-driver-parameter-api-coverage
