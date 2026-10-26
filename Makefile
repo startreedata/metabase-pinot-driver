@@ -105,7 +105,7 @@ test: clone_metabase_if_missing link_to_driver update_deps_files
 		-Sdeps '{:aliases {:pinot-test {:extra-paths ["modules/drivers/pinot/src" "modules/drivers/pinot/resources" "modules/drivers/pinot/test"]}}}' \
 		-M:dev:pinot-test:test -m cloverage.coverage \
 		--src-ns-path modules/drivers/pinot/src --test-ns-path modules/drivers/pinot/test \
-		--output ../drivers/pinot/target/coverage --html --codecov --lcov --junit \
+		--output ../drivers/pinot/target/coverage --html --codecov --junit \
 		--low-watermark 50 --high-watermark 80
 	# Upstream logging macros change form counts; enforce the existing 68% gate on source lines.
 	python3 -c 'import json, sys; coverage = json.load(open("drivers/pinot/target/coverage/codecov.json"))["coverage"]; hits = [hit for values in coverage.values() for hit in values if hit is not None]; percent = 100 * sum(hit > 0 for hit in hits) / len(hits) if hits else 0; print(f"Line coverage: {percent:.2f}% (minimum: 68%)"); sys.exit(percent < 68)'

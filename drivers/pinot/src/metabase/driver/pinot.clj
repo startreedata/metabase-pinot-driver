@@ -132,22 +132,24 @@
                    :prepared-statement-args []}))))
 
 (def ^:private parameter-api
-  ;; Select at namespace load so the same packaged driver can use either Metabase parameter API.
-  (let [modern-hook (ns-resolve 'metabase.driver 'substitute-native-parameters-in-stage-method)]
-    {:kind                    (if modern-hook :modern :legacy)
-     :hook-var                (or modern-hook (requiring-resolve 'metabase.driver/substitute-native-parameters))
-     :params-map-var          (requiring-resolve
-                               (if modern-hook
-                                 'metabase.query-processor.parameters.values/stage->params-map
-                                 'metabase.driver.common.parameters.values/query->params-map))
-     :referenced-card-ids-var (requiring-resolve
-                               (if modern-hook
-                                 'metabase.query-processor.parameters.values/referenced-card-ids
-                                 'metabase.driver.common.parameters.values/referenced-card-ids))
-     :parse-var               (requiring-resolve
-                               (if modern-hook
-                                 'metabase.lib.core/parse-parameters
-                                 'metabase.driver.common.parameters.parse/parse))
+  ;; Select one complete API at namespace load, then retain Vars for dynamic bindings and redefs.
+  (let [[kind hook params-map referenced-card-ids parse]
+        (if (ns-resolve 'metabase.driver 'substitute-native-parameters-in-stage-method)
+          [:modern
+           'metabase.driver/substitute-native-parameters-in-stage-method
+           'metabase.query-processor.parameters.values/stage->params-map
+           'metabase.query-processor.parameters.values/referenced-card-ids
+           'metabase.lib.core/parse-parameters]
+          [:legacy
+           'metabase.driver/substitute-native-parameters
+           'metabase.driver.common.parameters.values/query->params-map
+           'metabase.driver.common.parameters.values/referenced-card-ids
+           'metabase.driver.common.parameters.parse/parse])]
+    {:kind                    kind
+     :hook-var                (requiring-resolve hook)
+     :params-map-var          (requiring-resolve params-map)
+     :referenced-card-ids-var (requiring-resolve referenced-card-ids)
+     :parse-var               (requiring-resolve parse)
      :substitute-var          (requiring-resolve 'metabase.driver.sql.parameters.substitute/substitute)}))
 
 (defn- substitute-parameter-stage
