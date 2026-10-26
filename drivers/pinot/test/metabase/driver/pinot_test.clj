@@ -26,7 +26,6 @@
    [metabase.driver.sql.parameters.substitution :as sql.params.substitution]
    [metabase.lib.core :as lib]
    [metabase.lib.metadata.protocols :as lib.metadata.protocols]
-   [metabase.query-processor.parameters.values :as params.values]
    [metabase.secrets.models.secret :as secret]
    [metabase.driver.pinot.client :as client]
    [metabase.driver.pinot.execute :as execute]
@@ -187,6 +186,30 @@
              :native sql
              :template-tags tags}]})
 
+(def ^:private parameter-contracts
+  (if (ns-resolve 'metabase.driver 'substitute-native-parameters-in-stage-method)
+    [:stage :query]
+    [:legacy]))
+
+(defn- substitute-parameters
+  [query contract]
+  (let [stage (lib/query-stage query 0)]
+    (if (= contract :legacy)
+      ((requiring-resolve 'metabase.query-processor.store/do-with-metadata-provider)
+       parameter-metadata
+       (fn []
+         (let [inner-query (-> stage
+                               (dissoc :lib/type :native)
+                               (assoc :query (:native stage)
+                                      :template-tags (into {} (map (juxt :name lib/->legacy-MBQL))
+                                                           (:template-tags stage))))
+               result ((requiring-resolve 'metabase.driver/substitute-native-parameters) :pinot inner-query)]
+           (assoc result :native (:query result)))))
+      (let [result ((requiring-resolve 'metabase.driver/substitute-native-parameters-in-stage-method)
+                    :pinot (if (= contract :stage) parameter-metadata query)
+                    (if (= contract :stage) stage 0))]
+        (if (= contract :stage) result (lib/query-stage result 0))))))
+
 (deftest substitute-native-parameters-inlines-values
   (binding [driver/*driver* :pinot]
     (doseq [[label sql tags expected]
@@ -206,30 +229,31 @@
                 :dimension [:field {:lib/uuid "1d31d178-252e-40f1-ab81-4b61a9c932fa"} 2]
                 :widget-type :category :default "CA"}]
               "SELECT * FROM orders WHERE \"orders\".\"state\" = 'CA'"]]
-            contract [:stage :query]]
+            contract parameter-contracts]
       (testing (str label " (" (name contract) " contract)")
         (let [query (parameter-query sql tags)
-              result (driver/substitute-native-parameters-in-stage-method
-                      :pinot (if (= contract :stage) parameter-metadata query)
-                      (if (= contract :stage) (lib/query-stage query 0) 0))
-              stage (if (= contract :stage) result (lib/query-stage result 0))]
+              stage (substitute-parameters query contract)]
           (is (= expected (:native stage)))
           (is (empty? (:params stage))))))))
 
 (deftest substitute-native-parameters-tracks-card-ids
   (testing "referenced card ids are merged into permission metadata"
     (let [query (assoc-in (parameter-query "SELECT {{card}}" [])
-                          [:stages 0 :query-permissions/referenced-card-ids] #{1})]
-      (with-redefs [params.values/stage->params-map
-                    (constantly {"card" (lib/parsed-referenced-card-query-param 2 "SELECT '?', ?" [100])})]
-        (binding [driver/*driver* :pinot]
-          (doseq [contract [:stage :query]]
-            (let [result (driver/substitute-native-parameters-in-stage-method
-                          :pinot (if (= contract :stage) parameter-metadata query)
-                          (if (= contract :stage) (lib/query-stage query 0) 0))
-                  stage (if (= contract :stage) result (lib/query-stage result 0))]
-              (is (= "SELECT (SELECT '?', 100)" (:native stage)))
-              (is (= #{1 2} (:query-permissions/referenced-card-ids stage))))))))))
+                          [:stages 0 :query-permissions/referenced-card-ids] #{1})
+          legacy? (= parameter-contracts [:legacy])
+          params-map-var (requiring-resolve (if legacy?
+                                             'metabase.driver.common.parameters.values/query->params-map
+                                             'metabase.query-processor.parameters.values/stage->params-map))
+          card-constructor (requiring-resolve (if legacy?
+                                               'metabase.driver.common.parameters/->ReferencedCardQuery
+                                               'metabase.lib.core/parsed-referenced-card-query-param))]
+      (with-redefs-fn {params-map-var (constantly {"card" (card-constructor 2 "SELECT '?', ?" [100])})}
+        (fn []
+          (binding [driver/*driver* :pinot]
+            (doseq [contract parameter-contracts]
+              (let [stage (substitute-parameters query contract)]
+                (is (= "SELECT (SELECT '?', 100)" (:native stage)))
+                (is (= #{1 2} (:query-permissions/referenced-card-ids stage)))))))))))
 
 (deftest add-timeout-to-query-test
   (testing "SQL strings are wrapped in Pinot query maps with a timeout"
