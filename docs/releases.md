@@ -73,6 +73,13 @@ The automated release workflow will:
 4. Smoke test that same JAR against pinned Pinot in the build Metabase version and every `metabase_compatibility` version from `app_versions.json`, retaining separate runtime evidence even on failure
 5. Verify every runtime passed with the same JAR digest and expected version, then publish that JAR with its checksum and all tested versions in the release notes
 
+Release workflows run one at a time and refresh the published release inventory
+before creation. An older point release keeps the current **Latest** release;
+only a newer stable mirrored `v0` version replaces it. Historical `v1.x` driver
+tags, drafts, previews, and hotfixes do not participate in that comparison.
+For a version-specific release branch, run the **CI** workflow manually against
+that branch before dispatching **Release** with its exact successful commit.
+
 ## Installing a Release
 
 1. Download the driver JAR from the [Releases page](https://github.com/startreedata/metabase-pinot-driver/releases)

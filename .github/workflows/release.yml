@@ -18,7 +18,7 @@ on:
         default: false
 
 concurrency:
-  group: release-${{ inputs.version }}
+  group: driver-release
   cancel-in-progress: false
 
 jobs:
@@ -163,16 +163,6 @@ jobs:
         done < target/release-validation/metabase-versions.txt
         exit "$failed"
 
-    - name: Upload release validation evidence
-      uses: actions/upload-artifact@v7
-      if: always()
-      with:
-        name: release-validation-${{ inputs.version }}
-        path: |
-          target/release-validation/
-          target/smoke/
-        retention-days: 30
-
     - name: Prepare release artifacts
       env:
         SOURCE_COMMIT: ${{ steps.validate.outputs.commit_sha }}
@@ -228,6 +218,30 @@ jobs:
         echo "=== Release artifacts prepared ==="
         ls -la
 
+    - name: Select latest stable release
+      id: latest
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" \
+          | jq 'map(map({tag_name, draft, prerelease, published_at}))' \
+          > target/release-validation/published-releases.json
+        make_latest=$(python3 scripts/select-release-latest.py "$RELEASE_VERSION" "$RELEASE_PRERELEASE" \
+          < target/release-validation/published-releases.json)
+        printf 'make_latest=%s\n' "$make_latest" >> "$GITHUB_OUTPUT"
+        printf '%s\n' "$make_latest" > target/release-validation/make-latest.txt
+
+    - name: Upload release validation evidence
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: release-validation-${{ inputs.version }}
+        path: |
+          target/release-validation/
+          target/smoke/
+        retention-days: 30
+
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v3
       with:
@@ -240,7 +254,7 @@ jobs:
           release-artifacts/pinot.metabase-driver-v${{ inputs.version }}.jar
           release-artifacts/pinot.metabase-driver-v${{ inputs.version }}.jar.sha256
         generate_release_notes: true
-        make_latest: ${{ inputs.prerelease && 'false' || 'true' }}
+        make_latest: ${{ steps.latest.outputs.make_latest }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
