@@ -142,7 +142,13 @@ def main():
             time.sleep(1)
         props = request(base + "/api/session/properties")
         require(props["version"]["tag"] == target, "Running Metabase version differs from the expected runtime")
-        require("pinot" in props.get("engines", {}), "Packaged Pinot driver was not discovered")
+        # Metabase <=0.64 advertised loaded drivers under session-properties "engines"; 0.65 dropped
+        # that key. When present, use it as an early signal; otherwise rely on the authoritative
+        # discovery check below, where creating a database with engine "pinot" only succeeds if the
+        # packaged driver registered.
+        engines = props.get("engines")
+        if engines is not None:
+            require("pinot" in engines, "Packaged Pinot driver was not discovered")
         session = request(base + "/api/setup", {
             "token": props["setup-token"],
             "user": {"first_name": "Driver", "last_name": "Smoke", "email": "smoke@example.invalid",
