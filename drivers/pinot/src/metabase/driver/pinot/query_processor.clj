@@ -33,13 +33,17 @@
   (not (some #(= 2 (count %)) (:arglists (meta #'u.date/truncate)))))
 
 (def ^:private start-of-week-setting
-  ;; Read the :start-of-week Setting the same way core does, resolved lazily so this driver
-  ;; works whether settings live under metabase.settings.core or the legacy metabase.models.setting.
+  ;; Read the :start-of-week Setting the same way core does, resolved lazily and defensively:
+  ;; the settings namespace moved across versions (metabase.settings.core vs legacy
+  ;; metabase.models.setting) and the registry may be unavailable, so any resolution or lookup
+  ;; failure falls back to nil and lets time-config apply its :sunday default.
   (delay
-    (when-let [get-value (some requiring-resolve
-                               '[metabase.settings.core/get-value-of-type
-                                 metabase.models.setting/get-value-of-type])]
-      (get-value :keyword :start-of-week))))
+    (try
+      (when-let [get-value (some requiring-resolve
+                                 '[metabase.settings.core/get-value-of-type
+                                   metabase.models.setting/get-value-of-type])]
+        (get-value :keyword :start-of-week))
+      (catch Throwable _ nil))))
 
 (defn- time-config
   "Build the 0.65 time-config, honoring an explicit [[driver.common/*start-of-week*]] override, then

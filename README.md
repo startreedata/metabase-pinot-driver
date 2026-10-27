@@ -128,7 +128,7 @@ These tests use mocked Pinot responses. Release compatibility also requires load
 ### Tested Compatibility
 
 On 2026-10-27, the same unmodified **0.65.2** driver JAR
-(`sha256:6a142f60be21622b93cbbe3989220ad938d4bae4ff28f2ad4da667bd0902ff61`)
+(`sha256:893cb2f987b9ab42ed720ec76829c0151ba3664460b398d4b348158a7293cdac`)
 passed all 13 packaged runtime checks for each combination below (Metabase on
 Java 25, Pinot on Java 21):
 
