@@ -14,6 +14,7 @@
 (ns metabase.driver.pinot.query-processor
   (:require
    [clojure.string :as str]
+   [metabase.driver.common :as driver.common]
    [metabase.driver.sql.query-processor :as sql.qp]
    [metabase.lib.convert :as lib.convert]
    [metabase.lib.metadata :as lib.metadata]
@@ -25,6 +26,38 @@
    [metabase.util.log :as log]))
 
 (set! *warn-on-reflection* true)
+
+(def ^:private truncate-takes-time-config?
+  ;; Metabase 0.65 made util.date-2/truncate require a leading time-config map
+  ;; {:start-of-week ...}; 0.63/0.64 accept [t unit]. Detect the active arity once at load.
+  (not (some #(= 2 (count %)) (:arglists (meta #'u.date/truncate)))))
+
+(def ^:private start-of-week-setting
+  ;; Read the :start-of-week Setting the same way core does, resolved lazily and defensively:
+  ;; the settings namespace moved across versions (metabase.settings.core vs legacy
+  ;; metabase.models.setting) and the registry may be unavailable, so any resolution or lookup
+  ;; failure falls back to nil and lets time-config apply its :sunday default.
+  (delay
+    (try
+      (when-let [get-value (some requiring-resolve
+                                 '[metabase.settings.core/get-value-of-type
+                                   metabase.models.setting/get-value-of-type])]
+        (get-value :keyword :start-of-week))
+      (catch Throwable _ nil))))
+
+(defn- time-config
+  "Build the 0.65 time-config, honoring an explicit [[driver.common/*start-of-week*]] override, then
+  the :start-of-week Setting, then Metabase's :sunday default. start-of-week only affects :week units."
+  []
+  {:start-of-week (or driver.common/*start-of-week* @start-of-week-setting :sunday)})
+
+(defn- truncate
+  "Truncate temporal value `t` to `unit`, bridging the 0.63/0.64 ([t unit]) and 0.65
+  ([time-config t unit]) `util.date-2/truncate` signatures."
+  [t unit]
+  (if truncate-takes-time-config?
+    (u.date/truncate (time-config) t unit)
+    (u.date/truncate t unit)))
 
 (def ^:private ^:dynamic *query*
   "The INNER part of the query currently being processed.
@@ -200,16 +233,16 @@
   (u.date/format
    (if (= unit :default)
      t
-     (u.date/truncate t unit))))
+     (truncate t unit))))
 
 ;; TODO - not 100% sure how to handle times here, just treating it exactly like a date will have to do for now
 (defmethod ->rvalue :time
   [[_ t unit]]
-  (u.date/format (u.date/truncate t unit)))
+  (u.date/format (truncate t unit)))
 
 (defmethod ->rvalue :relative-datetime
   [[_ amount unit]]
-  (u.date/format (u.date/truncate (u.date/add unit amount) unit)))
+  (u.date/format (truncate (u.date/add unit amount) unit)))
 
 (defmethod ->rvalue :value
   [[_ value]]

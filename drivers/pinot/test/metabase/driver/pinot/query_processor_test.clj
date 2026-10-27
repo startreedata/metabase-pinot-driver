@@ -201,6 +201,17 @@
     (is (= 42 (#'qp/->rvalue 42)))
     (is (= 3.14 (#'qp/->rvalue 3.14)))))
 
+(deftest rvalue-truncates-temporal-values-across-metabase-versions
+  ;; Guards the util.date-2/truncate 0.63/0.64 ([t unit]) vs 0.65 ([time-config t unit]) bridge.
+  ;; 2024-01-10 is a Wednesday; with Metabase's default :sunday start-of-week its week begins 2024-01-07.
+  (let [zdt (java.time.OffsetDateTime/parse "2024-01-10T12:34:56Z")]
+    (testing "truncation produces identical results on both parameter-API eras"
+      (is (= "2024-01-10T00:00:00Z" (#'qp/->rvalue [:absolute-datetime zdt :day])))
+      (is (= "2024-01-10T12:34:56Z" (#'qp/->rvalue [:absolute-datetime zdt :default])))
+      (is (= "2024-01-01T00:00:00Z" (#'qp/->rvalue [:absolute-datetime zdt :month])))
+      (is (= "2024-01-07T00:00:00Z" (#'qp/->rvalue [:absolute-datetime zdt :week]))
+          "start-of-week time-config is honored on 0.65"))))
+
 (deftest inline-value-handles-pinot-string
   (is (= "'hello'" (sql.qp/inline-value :pinot "hello"))))
 
