@@ -127,15 +127,15 @@ These tests use mocked Pinot responses. Release compatibility also requires load
 
 ### Tested Compatibility
 
-On 2026-10-27, the same unmodified **0.65.2** driver JAR
-(`sha256:893cb2f987b9ab42ed720ec76829c0151ba3664460b398d4b348158a7293cdac`)
+On 2026-10-31, the same unmodified **0.65.2** driver JAR
+(`sha256:90ea78b6ea7ebe1abc66be9c577c1e510e7cddb69da467ae9e59129df724b80c`)
 passed all 13 packaged runtime checks for each combination below (Metabase on
 Java 25, Pinot on Java 21):
 
 | Metabase runtime | Pinot release | Result |
 |:-----------------|:--------------|:-------|
 | v0.63.22 (`5eb18fc`) | 1.5.1 | 13/13 passed |
-| v0.64.3 (`dc449ac`) | 1.5.1 | 13/13 passed |
+| v0.64.4 (`211ceda`) | 1.5.1 | 13/13 passed |
 | v0.65.2 (`86e10ed`) | 1.5.1 | 13/13 passed |
 
 Connection, schema sync, native SQL, MBQL selection and aggregation, ordering,
