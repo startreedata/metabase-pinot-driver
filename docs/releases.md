@@ -21,9 +21,9 @@ Download the latest release from the [GitHub Releases page](https://github.com/s
 
 See the [maintenance policy](https://github.com/startreedata/metabase-pinot-driver/blob/main/MAINTENANCE.md)
 for upstream release alignment and compatibility requirements. New driver
-versions mirror the target Metabase version: Metabase `v0.64.3` maps to driver
-`v0.64.3`, including artifact `pinot.metabase-driver-v0.64.3.jar` and embedded
-plugin version `0.64.3`. Publish only stable major and point releases with exactly
+versions mirror the target Metabase version: Metabase `v0.65.2` maps to driver
+`v0.65.2`, including artifact `pinot.metabase-driver-v0.65.2.jar` and embedded
+plugin version `0.65.2`. Publish only stable major and point releases with exactly
 three numeric components and a point greater than zero. Hotfixes, previews,
 point-zero betas, and Cloud builds are excluded.
 Release notes must name the exact Metabase versions tested; historical driver
