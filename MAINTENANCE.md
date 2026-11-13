@@ -29,7 +29,7 @@ implementation tasks, compatibility validation, and driver publication.
   different release line or release candidate do not establish 1.5 compatibility.
 - Validate the same driver JAR against the build target and every additional
   runtime in `app_versions.json`'s `metabase_compatibility` list. For driver
-  `v0.65.3`, require Metabase `v0.63.22`, `v0.64.4`, and `v0.65.3`, including
+  `v0.65.4`, require Metabase `v0.63.22`, `v0.64.6`, and `v0.65.4`, including
   native parameters and temporal bucketing.
 - Compare upstream versions numerically, including hotfix components. A patch
   published on an older line is not a newer current line. Deduplicate paired

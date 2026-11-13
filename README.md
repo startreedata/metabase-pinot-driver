@@ -27,7 +27,7 @@ This repository contains the Apache Pinot driver for Metabase, allowing you to c
 - Java 25 (Eclipse Temurin)
 - Clojure CLI 1.12.3.1577
 - Apache Pinot 1.5.1
-- Metabase v0.65.3 (the pinned build target)
+- Metabase v0.65.4 (the pinned build target)
 
 Building the Metabase frontend with `make build` or `make front_end` also requires NodeJS 22.23.2 and Bun 1.3.14. `make driver` only requires Git, Java, Clojure CLI, Make, and jq.
 
@@ -127,23 +127,23 @@ These tests use mocked Pinot responses. Release compatibility also requires load
 
 ### Tested Compatibility
 
-On 2026-11-06, the same unmodified **0.65.3** driver JAR
-(`sha256:db82f3dd8a75fb615a771d69fa9e05672738ae3182df680884e99b6b98725462`)
+On 2026-11-13, the same unmodified **0.65.4** driver JAR
+(`sha256:df8f4adf4cb024e0fb1e5ce3225e92c0d058b852bf2ab29ead9531f8bed00a51`)
 passed all 13 packaged runtime checks for each combination below (Metabase on
 Java 25, Pinot on Java 21):
 
 | Metabase runtime | Pinot release | Result |
 |:-----------------|:--------------|:-------|
 | v0.63.22 (`5eb18fc`) | 1.5.1 | 13/13 passed |
-| v0.64.4 (`211ceda`) | 1.5.1 | 13/13 passed |
-| v0.65.3 (`0c644f3`) | 1.5.1 | 13/13 passed |
+| v0.64.6 (`1bfb310`) | 1.5.1 | 13/13 passed |
+| v0.65.4 (`b18ec8d`) | 1.5.1 | 13/13 passed |
 
 Connection, schema sync, native SQL, MBQL selection and aggregation, ordering,
 and number/text/field/optional parameters matched direct Pinot results for each
 release. The existing unit suite passed with 96%+ source-line coverage against
 each runtime. CI builds once, runs the unit suite once, and checks all declared
 Metabase runtimes against the pinned Pinot 1.5.1 quickstart. The build target and
-embedded driver version are v0.65.3 and 0.65.3 respectively.
+embedded driver version are v0.65.4 and 0.65.4 respectively.
 See [the reproducible smoke command](docs/development.md#packaged-driver-compatibility).
 
 ### Manual Testing Notes (Variable Substitution)
@@ -169,7 +169,7 @@ The following behaviors were manually verified for **variable substitution** (SQ
 ## Releases
 
 New driver releases mirror stable Metabase major and point versions: Metabase
-`v0.65.3` uses driver tag `v0.65.3` and embedded plugin version `0.65.3`.
+`v0.65.4` uses driver tag `v0.65.4` and embedded plugin version `0.65.4`.
 Hotfixes and previews are excluded by the [maintenance policy](MAINTENANCE.md).
 Historical v1.x driver releases remain unchanged.
 
