@@ -27,7 +27,7 @@ This repository contains the Apache Pinot driver for Metabase, allowing you to c
 - Java 25 (Eclipse Temurin)
 - Clojure CLI 1.12.3.1577
 - Apache Pinot 1.5.1
-- Metabase v0.65.4 (the pinned build target)
+- Metabase v0.65.6 (the pinned build target)
 
 Building the Metabase frontend with `make build` or `make front_end` also requires NodeJS 22.23.2 and Bun 1.3.14. `make driver` only requires Git, Java, Clojure CLI, Make, and jq.
 
@@ -142,8 +142,8 @@ Connection, schema sync, native SQL, MBQL selection and aggregation, ordering,
 and number/text/field/optional parameters matched direct Pinot results for each
 release. The existing unit suite passed with 96%+ source-line coverage against
 each runtime. CI builds once, runs the unit suite once, and checks all declared
-Metabase runtimes against the pinned Pinot 1.5.1 quickstart. The build target and
-embedded driver version are v0.65.4 and 0.65.4 respectively.
+Metabase runtimes against the pinned Pinot 1.5.1 quickstart. See
+`app_versions.json` for the current build and compatibility targets.
 See [the reproducible smoke command](docs/development.md#packaged-driver-compatibility).
 
 ### Manual Testing Notes (Variable Substitution)
@@ -169,7 +169,7 @@ The following behaviors were manually verified for **variable substitution** (SQ
 ## Releases
 
 New driver releases mirror stable Metabase major and point versions: Metabase
-`v0.65.4` uses driver tag `v0.65.4` and embedded plugin version `0.65.4`.
+`v0.65.6` maps to driver tag `v0.65.6` and embedded plugin version `0.65.6`.
 Hotfixes and previews are excluded by the [maintenance policy](MAINTENANCE.md).
 Historical v1.x driver releases remain unchanged.
 
